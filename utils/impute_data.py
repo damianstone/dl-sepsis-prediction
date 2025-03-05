@@ -23,30 +23,47 @@ def impute_forward_fill_last_recorded(data, column_name, global_mean=None):
     return imputed_data
 
     
+def impute_patient_group(group, global_means, linear_cols, exclude_cols, missing_threshold):
+    # Sort by ICULOS and make a copy to avoid SettingWithCopy warnings.
+    group = group.sort_values('ICULOS').copy()
+    
+    for col in group.columns:
+        if col in linear_cols:
+            group[col] = group[col].interpolate(method='linear')
+        elif col in exclude_cols:
+            continue
+        else:
+            missing_pct = group[col].isnull().mean()
+            if missing_pct < missing_threshold:
+                # Forward fill then fill remaining NaNs with the global mean.
+                group[col] = group[col].ffill().fillna(global_means[col])
+            else:
+                # Fill missing values with the patient’s mean if available, otherwise use global mean.
+                patient_mean = group[col].mean()
+                if pd.isnull(patient_mean):
+                    patient_mean = global_means[col]
+                group[col] = group[col].fillna(patient_mean)
+    return group
+
 def impute_df(df, missing_threshold=0.3):
     df_imputed = df.copy()
+    # Select numeric columns for calculating global means.
     numeric_cols = df_imputed.select_dtypes(include=[np.number]).columns
     global_means = df_imputed[numeric_cols].mean(skipna=True)
+    
+    # Define which columns should use linear interpolation and which to exclude.
     linear_cols = ['HR', 'O2Sat', 'SBP', 'MAP', 'DBP', 'Resp']
     exclude_cols = ['patient_id', 'dataset', 'SepsisLabel', 'ICULOS']
-    for pid, group in df_imputed.groupby('patient_id'):
-        group = group.sort_values('ICULOS')
-        for col in group.columns:
-            if col in linear_cols:
-                group = impute_linear_interpolation(group, col)
-            elif col in exclude_cols:
-                continue
-            else:
-                missing_pct = group[col].isnull().mean()
-                if missing_pct < missing_threshold:
-                    group = impute_forward_fill_last_recorded(group, col, global_mean=global_means[col])
-                else:
-                    patient_mean = group[col].mean()
-                    if pd.isnull(patient_mean):
-                        patient_mean = global_means[col]
-                    group[col] = group[col].fillna(patient_mean)
-        df_imputed.loc[group.index, :] = group
     
+    # Apply the imputation function to each patient group.
+    df_imputed = df_imputed.groupby('patient_id').apply(
+        lambda group: impute_patient_group(group, global_means, linear_cols, exclude_cols, missing_threshold)
+    )
+    
+    # When using groupby.apply, the patient_id may become part of the index. Reset it if needed.
+    if 'patient_id' not in df_imputed.columns:
+        df_imputed = df_imputed.reset_index(level=0, drop=True)
+        
     return df_imputed
 
 
