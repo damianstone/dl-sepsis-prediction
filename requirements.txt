@@ -4,3 +4,6 @@ matplotlib
 tqdm
 scipy
 seaborn
+pyarrow
+fastparquet
+scikit-learn
