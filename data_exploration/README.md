@@ -28,3 +28,5 @@ Hospital system: B
 
 ### Other stuff
 * patients have different numbers of records
+* overall JSD before imputation = 0.26
+* overall JSD after imputation = 0.36
