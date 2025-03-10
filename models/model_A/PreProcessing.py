@@ -1,10 +1,12 @@
 import pandas as pd
 
+data_path = "C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/dataset/imputed_combined_data.parquet"
+data = pd.read_parquet(data_path)
 
-input_path = "C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/dataset/imputed_combined_data.csv"
+#input_path = "C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/dataset/imputed_combined_data.csv"
 output_path = "C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/processed_data.csv"
 
-data = pd.read_csv(input_path)
+#data = pd.read_csv(input_path)
 print(f"colums before ：{len(data.columns)}")
 
 data_cleaned = data.drop(columns=["Unit1", "Unit2", "cluster_id","dataset"], errors='ignore')
