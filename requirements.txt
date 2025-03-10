@@ -1,12 +1,10 @@
-pandas
 numpy
-xgboost
-scikit-learn
+pandas
 matplotlib
-seaborn
-joblib
-graphviz
 tqdm
+scipy
+seaborn
 pyarrow
 fastparquet
+scikit-learn
 openpyxl
