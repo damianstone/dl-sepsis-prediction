@@ -8,3 +8,6 @@ pyarrow
 fastparquet
 scikit-learn
 openpyxl
+xgboost
+joblib
+graphviz
