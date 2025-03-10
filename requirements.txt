@@ -11,3 +11,8 @@ openpyxl
 xgboost
 joblib
 graphviz
+torchmetrics
+torch
+torchvision
+torchaudio
+category_encoders

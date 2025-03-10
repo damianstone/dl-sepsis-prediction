@@ -25,6 +25,7 @@ Hospital system: B
 'HospAdmTime', 'ICULOS', 'SepsisLabel', 'patient_id', 'dataset']
 * not continuous values -> ['Gender', 'Unit1', 'Unit2', 'dataset']
 * target variable -> 'SepsisLabel'
+* ICULOS -> number of days a patient has spent in the ICU
 
 ### Other stuff
 * patients have different numbers of records
