@@ -1,2 +1,4 @@
 venv-sepsis**
 .DS_Store
+dataset/*.csv
+models/model_A/*.csv
