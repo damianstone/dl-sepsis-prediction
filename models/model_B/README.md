@@ -25,3 +25,10 @@
 * which variables are more important
 * how long before it detects sepsis
 * how influencial are the least of sequences 
+
+## Speed up predictions
+* move model & data to GPU
+* use mini-batch inference
+* enable JIT compilation
+* use float16 precision
+* optimize pytorch backend (cudnn.benchmark)
