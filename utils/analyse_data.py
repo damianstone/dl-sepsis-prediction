@@ -6,6 +6,7 @@ from scipy.stats import ks_2samp
 import math
 from scipy.stats import ks_2samp, wasserstein_distance, entropy, chi2_contingency
 from scipy.spatial.distance import jensenshannon
+from scipy.stats import linregress
 
 def summariseSeperateDatasets(df, hospital_name):
     num_patients = df['patient_id'].nunique()
@@ -71,7 +72,7 @@ def nullCols(df):
     cols_to_analyse = [col for col in df.columns if col not in ['patient_id', 'dataset']]
     missing_counts = df[cols_to_analyse].isnull().sum()
     missing_percent = missing_counts / len(df) * 100
-    missing_percent_sorted = missing_percent.sort_values()
+    missing_percent_sorted = missing_percent.sort_values(ascending=False)
     plt.figure(figsize=(12, 6))
     plt.bar(missing_percent_sorted.index, missing_percent_sorted.values, color='skyblue')
     plt.xlabel("Columns")
@@ -80,6 +81,24 @@ def nullCols(df):
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
     plt.show()
+
+def plot_density_of_actual_values(df, value_col='ICULOS'):
+    patient_iculos_density = df.groupby(['patient_id', value_col]).apply(lambda x: x.notna().mean().mean())
+
+    avg_density = patient_iculos_density.groupby(value_col).mean()
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(avg_density.index, avg_density.values, color='navy')
+    plt.fill_between(avg_density.index, avg_density.values, alpha=0.3, color='navy')
+    plt.xlabel('ICU Length of Stay (hours)')
+    plt.ylabel('Average Density of Actual Values')
+    plt.title('Average Density of Actual Values over ICU Length of Stay (Patient-Averaged)')
+    plt.grid(alpha=0.3)
+    plt.show()
+
+
+
+
 
 def distributions(df, columns=None, ncols=3):
     if columns is None:
@@ -100,6 +119,8 @@ def distributions(df, columns=None, ncols=3):
         ax = axes[i]
         sns.kdeplot(sepsis_data, ax=ax, label='Sepsis', shade=True, color='red', alpha=0.5)
         sns.kdeplot(non_sepsis_data, ax=ax, label='Non-Sepsis', shade=True, color='blue', alpha=0.5)
+        ax.axvline(sepsis_data.mean(), color='red', linestyle='--', linewidth=1.5, label='Sepsis Mean')
+        ax.axvline(non_sepsis_data.mean(), color='blue', linestyle='--', linewidth=1.5, label='Non-Sepsis Mean')
         ax.set_xlabel(col)
         ax.set_ylabel("Density")
         ax.legend()
@@ -108,8 +129,86 @@ def distributions(df, columns=None, ncols=3):
     plt.tight_layout()
     plt.show()
 
+def plot_percentage_sepsis_grid(df):
+    exclude = ['patient_id', 'dataset', 'SepsisLabel', 'Unit1', 'Unit2', 'Gender', 'FiO2']
+    features = [col for col in df.columns if col not in exclude and df[col].dtype in [np.float64, np.int64]]
+
+    n_cols = 3
+    n_rows = int(np.ceil(len(features) / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(18, 5 * n_rows))
+    axes = axes.flatten()
+
+    for i, col in enumerate(features):
+        df_non_null = df.dropna(subset=[col])
+        bins = np.linspace(df_non_null[col].min(), df_non_null[col].max(), 200)
+        df_non_null['MeasurementBin'] = pd.cut(df_non_null[col], bins=bins)
+
+        bin_counts = df_non_null.groupby('MeasurementBin').size()
+        valid_bins = bin_counts[bin_counts >= 1].index
+
+        sepsis_percentage = df_non_null[df_non_null['MeasurementBin'].isin(valid_bins)].groupby('MeasurementBin')['SepsisLabel'].mean() * 100
+        sepsis_percentage = sepsis_percentage[sepsis_percentage > 0]
+        bin_centers = [interval.mid for interval in sepsis_percentage.index]
+
+        axes[i].plot(bin_centers, sepsis_percentage, ',-', label='Sepsis %', color='black', linewidth=1)
+        
+        slope, intercept, r_value, p_value, std_err = linregress(bin_centers, sepsis_percentage)
+        print(f"{col}:slope:{slope}, c:{intercept}")
+        best_fit = slope * np.array(bin_centers) + intercept
+        axes[i].plot(bin_centers, best_fit, 'r--', label=f'Best Fit (slope={slope:.2f})')
+
+        axes[i].set_title(f'Sepsis % by {col} Gradient: {slope:.4f}')
+        axes[i].set_xlabel(col)
+        axes[i].set_ylabel('Sepsis Percentage (%)')
+        axes[i].legend()
+        axes[i].grid(alpha=0.3)
+
+    for j in range(i+1, len(axes)):
+        fig.delaxes(axes[j])
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_avg_missing_data_sepsis(df):
+    missing_data = df.isnull().mean(axis=1)
+    avg_missingness = missing_data = missing_data = missing_data = df.assign(missing=missing_data).groupby('SepsisLabel')['missing'].mean() * 100
+    plt.figure(figsize=(8,6))
+    sns.barplot(x=avg_missingness.index, y=avg_missingness.values, palette=['skyblue', 'salmon'])
+    plt.xticks([0, 1], ['Non-Sepsis', 'Sepsis'])
+    plt.ylabel('Average Missing Data (%)')
+    plt.xlabel('Sepsis Label')
+    plt.title('Average Percentage of Missing Data by Sepsis Status')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.show()
 
 
+def plot_average_lab_trajectories(df):
+    lab_values = ['Lactate', 'WBC', 'Creatinine', 'Platelets']
+    df_grouped = df.groupby(['ICULOS', 'SepsisLabel'])[lab_values].mean().reset_index()
+
+    for lab in lab_values:
+        plt.figure(figsize=(12, 6))
+        sns.lineplot(x='ICULOS', y=lab, hue='SepsisLabel', data=df_grouped)
+        plt.title(f'Average {lab} Trajectory: Sepsis vs Non-Sepsis')
+        plt.xlabel('ICU Length of Stay (hours)')
+        plt.ylabel(f'{lab} Levels')
+        plt.grid(alpha=0.3)
+        plt.show()
+
+def plot_sepsis_by_age_bucket(df):
+    bins = [0, 20, 40, 60, 80, 100]
+    labels = ['0-20', '21-40', '41-60', '61-80', '81-100']
+    df['AgeBucket'] = pd.cut(df['Age'], bins=bins, labels=labels)
+
+    sepsis_by_age = df.groupby('AgeBucket')['SepsisLabel'].mean() * 100
+
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x=sepsis_by_age.index, y=sepsis_by_age.values, palette='Blues')
+    plt.title('Percentage of Sepsis Occurrence by Age Group')
+    plt.xlabel('Age Bucket')
+    plt.ylabel('Percentage with Sepsis (%)')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.show()
 
 def compute_histogram(arr, bins=50):
     hist, bin_edges = np.histogram(arr, bins=bins, density=True)
