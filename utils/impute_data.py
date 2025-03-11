@@ -91,28 +91,43 @@ def impute_df_no_nans(
       
     If both cluster and nearest cluster values are missing, the value remains NaN.
     """
-    # Drop the unused EtCO2 column if present
-    df_imputed = df.copy().drop(columns=["EtCO2"], errors="ignore")
+    # Simply copy the DataFrame; do NOT drop "EtCO2"
+    df_imputed = df.copy()
+
+    # Optionally force EtCO2 to numeric
+    if "EtCO2" in df_imputed.columns:
+        df_imputed["EtCO2"] = pd.to_numeric(df_imputed["EtCO2"], errors="coerce")
 
     # Identify numeric columns to impute (exclude static columns)
     exclude_cols = ["patient_id", "dataset", "SepsisLabel", "ICULOS", "Age", "Gender", "HospAdmTime"]
-    candidate_cols = [c for c in df_imputed.select_dtypes(include=[np.number]).columns if c not in exclude_cols]
+    candidate_cols = [
+        c for c in df_imputed.select_dtypes(include=[np.number]).columns
+        if c not in exclude_cols
+    ]
 
     replacement_stats = {}
     lin_cols, cluster_cols = [], []
 
-    # Decide which columns to impute via linear interpolation vs. cluster-based fill
+    # Decide which columns get linear vs cluster fill
     for col in candidate_cols:
-        if df_imputed[col].isna().mean() < nan_density:
+        # Force EtCO2 to be cluster-imputed so it shows in the cluster fill chart
+        if col == "EtCO2":
+            cluster_cols.append(col)
+        elif df_imputed[col].isna().mean() < nan_density:
             lin_cols.append(col)
         else:
             cluster_cols.append(col)
 
-    # Linear Interpolation imputation per patient
+    # Linear Interpolation for columns in lin_cols
     for col in lin_cols:
         missing_before = df_imputed[col].isna().sum()
-        df_imputed = df_imputed.groupby("patient_id").apply(lambda g: impute_linear_interpolation(g, col)).reset_index(drop=True)
-        df_imputed[col] = df_imputed.groupby("patient_id")[col].transform(lambda x: x.fillna(x.mean()))
+        df_imputed = df_imputed.groupby("patient_id").apply(
+            lambda g: impute_linear_interpolation(g, col)
+        ).reset_index(drop=True)
+        # Fill leftover NaNs with mean per patient, then global mean if needed
+        df_imputed[col] = df_imputed.groupby("patient_id")[col].transform(
+            lambda x: x.fillna(x.mean())
+        )
         df_imputed[col] = df_imputed[col].fillna(df_imputed[col].mean(skipna=True))
         replacement_stats[col] = {
             "Method": "linear",
@@ -120,7 +135,7 @@ def impute_df_no_nans(
             "Linear fill": 100.00
         }
 
-    # Set up binning parameters for clustering
+    # Binning parameters
     clustering_params = {
         "Gender": gender_bins,
         "Age": age_bins,
@@ -132,7 +147,7 @@ def impute_df_no_nans(
     }
     clustering_features = {feat: bins for feat, bins in clustering_params.items() if bins > 0}
 
-    # Build bin edges based on patient averages for each feature
+    # Build bin edges from patient means
     if clustering_features:
         patient_means = df_imputed.groupby("patient_id")[list(clustering_features.keys())].mean().reset_index()
     else:
@@ -140,9 +155,12 @@ def impute_df_no_nans(
     bin_edges_dict = {}
     for feat, bins in clustering_features.items():
         feat_series = patient_means[feat].dropna()
-        bin_edges_dict[feat] = compute_bin_edges(feat_series, n_bins=bins) if not feat_series.empty else np.arange(0, bins + 1)
+        if not feat_series.empty:
+            bin_edges_dict[feat] = compute_bin_edges(feat_series, n_bins=bins)
+        else:
+            bin_edges_dict[feat] = np.arange(0, bins + 1)
 
-    # Assign cluster IDs for each patient based on binned features
+    # Assign cluster_id per patient
     def assign_cluster_id_for_patient(df_patient: pd.DataFrame) -> pd.DataFrame:
         df_patient = df_patient.copy()
         features_order = ["Gender", "Age", "HR", "MAP", "O2Sat", "SBP", "Resp"]
@@ -150,8 +168,11 @@ def impute_df_no_nans(
         for feat in features_order:
             if feat in clustering_features:
                 if feat == "Gender":
-                    # Use the first available gender value, or -1 if missing
-                    val = int(df_patient[feat].iloc[0]) if not df_patient[feat].isna().all() else -1
+                    val = (
+                        int(df_patient[feat].iloc[0])
+                        if not df_patient[feat].isna().all()
+                        else -1
+                    )
                     parts.append(str(val))
                 else:
                     mean_val = df_patient[feat].mean(skipna=True)
@@ -163,7 +184,7 @@ def impute_df_no_nans(
 
     df_imputed = df_imputed.groupby("patient_id").apply(assign_cluster_id_for_patient).reset_index(drop=True)
 
-    # Cluster-based imputation for columns with high missing density
+    # Cluster-based imputation
     for col in cluster_cols:
         missing_before = df_imputed[col].isna().sum()
         df_imputed, clust_count, nearest_count = cluster_mean_imputation(df_imputed, col)
