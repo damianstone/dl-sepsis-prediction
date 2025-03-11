@@ -77,11 +77,11 @@ if 'SepsisLabel' in df.columns:
     accuracy = accuracy_score(y_true, y_pred)
     report = classification_report(y_true, y_pred, output_dict=True)
 
-    # ✅ 只提取关键指标
+    
     metrics_df = pd.DataFrame(report).transpose()[['precision', 'recall', 'f1-score']]
-    metrics_df.loc['accuracy'] = [accuracy, accuracy, accuracy]  # 追加 Accuracy
+    metrics_df.loc['accuracy'] = [accuracy, accuracy, accuracy]
 
-    # ✅ 保存预测指标
+   
     metrics_path = os.path.join(predict_output_dir, "metrics.csv")
     metrics_df.to_csv(metrics_path, index=True)
 
