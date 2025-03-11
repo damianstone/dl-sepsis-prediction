@@ -1,4 +1,5 @@
 venv-sepsis**
 .DS_Store
 dataset/*.csv
+dataset/*.pth
 models/model_A/*.csv
