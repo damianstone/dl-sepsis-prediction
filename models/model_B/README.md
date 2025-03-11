@@ -18,17 +18,28 @@
 * precision, Recall, F1: tell how many sepsis cases your model finds correctly and incorrectly
 * ROC curve: shows clearly if your model makes few or many false alarms.
 * precision-recall curve: Shows if your model misses many real sepsis cases
-* confusion matrix: shows exactly which mistakes your model made
 * attention heatmaps: shows which patient features matter most
 
 ## After training 
 * which variables are more important
 * how long before it detects sepsis
-* how influencial are the least of sequences 
+* how influencial are the least of sequences
 
-## Speed up predictions
-* move model & data to GPU
-* use mini-batch inference
-* enable JIT compilation
-* use float16 precision
-* optimize pytorch backend (cudnn.benchmark)
+## Small dataset creation
+* only 1.80% positive sepsis -> possible data imbalance for models
+* simple 50/50 sampling (for now)
+
+### 01_simple_transformer evaluation
+* trained with the original dataset (imputed_sofa) 80/20
+* epochs = 100
+* precision 98% because most of the data were true negatives 
+#### Covariance matrix
+* high TN -> correctly classifies non-sepsis 
+* high FN -> not predicting correctly for sepsis patients 
+
+#### Precision - recall
+* precision drops as recall increases, meaning that capturing more positives leads to more false positives due to dataset imbalance
+
+### 01_simple_transformer evaluation
+* trained with X_train, y_train as balance dataset 80/20
+* tested with X_test, y_test as unbalance (original) dataset

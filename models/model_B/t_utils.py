@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torch import nn
 from sklearn.model_selection import train_test_split
+from sklearn.utils import resample
 from sklearn.metrics import roc_curve, auc
 from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
@@ -25,7 +26,10 @@ def save_eval_csv(df, eval):
     df.to_csv(f"{project_root}/models/model_B/results/{eval}/{eval}.csv", index=False)
 
 ########################################## DATASET #############################################################
-def get_dataset_tensors(data_path="imputed_sofa.parquet", save_path="dataset_tensors.pth"):
+def get_original_dataset_tensors(data_path="imputed_sofa.parquet", save_path="dataset_tensors.pth"):
+    """
+    normal 80/20 split from a dataset
+    """
     current_dir = os.getcwd()
     project_root = os.path.abspath(os.path.join(current_dir, "../.."))
     tensor_ds_path = f"{project_root}/dataset/{save_path}"
@@ -52,6 +56,30 @@ def get_dataset_tensors(data_path="imputed_sofa.parquet", save_path="dataset_ten
                "y_train": y_train, "y_test": y_test}, path)
 
     return X_train, X_test, y_train, y_test
+
+def get_full_balanced_dataset_tensors(data_path="balanced_dataset.parquet", save_path="full_balanced_tensors.pth"):
+    current_dir = os.getcwd()
+    project_root = os.path.abspath(os.path.join(current_dir, "../.."))
+    tensor_ds_path = f"{project_root}/dataset/{save_path}"
+    if os.path.exists(tensor_ds_path):
+        data = torch.load(tensor_ds_path)
+        print("from saved dataset")
+        return data["X_train"], data["X_test"], data["y_train"], data["y_test"]
+
+    imputed_df = pd.read_parquet(f"{project_root}/dataset/{data_path}")
+
+    X = imputed_df.drop(columns=['SepsisLabel']).values
+    y = imputed_df['SepsisLabel'].values
+
+    X_train = torch.tensor(X_train, dtype=torch.float32)
+    y_train = torch.tensor(y_train, dtype=torch.long)
+
+    path = f"{project_root}/dataset/{save_path}"
+    torch.save({"X_train": X_train,
+               "y_train": y_train}, path)
+
+    return X_train, y_train
+
 
 ########################################## PLOTS #############################################################
 
