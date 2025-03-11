@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 from torch import nn
 
 
-def get_dataset_tensors(data_path="imputed_sofa_ds.csv", save_path="dataset_tensors.pth"):
+def get_dataset_tensors(data_path="imputed_sofa.parquet", save_path="dataset_tensors.pth"):
     current_dir = os.getcwd()
     project_root = os.path.abspath(os.path.join(current_dir, "../.."))
     tensor_ds_path = f"{project_root}/dataset/{save_path}"
@@ -14,7 +14,7 @@ def get_dataset_tensors(data_path="imputed_sofa_ds.csv", save_path="dataset_tens
         print("from saved dataset")
         return data["X_train"], data["X_test"], data["y_train"], data["y_test"]
 
-    imputed_df = pd.read_csv(f"{project_root}/dataset/{data_path}")
+    imputed_df = pd.read_parquet(f"{project_root}/dataset/{data_path}")
     
     X = imputed_df.drop(columns=['SepsisLabel']).values
     y = imputed_df['SepsisLabel'].values 
