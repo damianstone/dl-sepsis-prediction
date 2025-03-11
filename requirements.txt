@@ -16,3 +16,4 @@ torch
 torchvision
 torchaudio
 category_encoders
+numpy<2
