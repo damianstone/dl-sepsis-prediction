@@ -93,8 +93,8 @@ class Dataset:
         if positive_count == 0:
             raise ValueError("No positive samples found in training set.")
         negative_count = counts.sum() - positive_count
-        pos_weight_value = negative_count / positive_count
-        self.pos_weight = torch.tensor([pos_weight_value])
+        pos_weight = min(negative_count / positive_count, 20)
+        self.pos_weight = torch.tensor([pos_weight])
         print(f"Computed pos_weight: {self.pos_weight}")
 
         # Step 3: Balance the training set using the specified sampling method.
