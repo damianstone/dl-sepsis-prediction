@@ -1,5 +1,8 @@
 import numpy as np
 import pandas as pd
+import importlib
+import matplotlib.pyplot as plt
+
 
 def impute_linear_interpolation(df: pd.DataFrame, col: str) -> pd.DataFrame:
     """
@@ -74,12 +77,10 @@ def impute_df_no_nans(
     df: pd.DataFrame,
     nan_density: float = 0.3,
     gender_bins: int = 2,
-    age_bins: int = 5,
-    hr_bins: int = 3,
-    map_bins: int = 0,
-    o2sat_bins: int = 0,
-    sbp_bins: int = 0,
-    resp_bins: int = 0
+    age_bins: int = 10,
+    hr_bins: int = 5,
+    map_bins: int = 5,
+
 ) -> tuple:
     """
     Imputes missing values in the DataFrame using two approaches:
@@ -91,15 +92,10 @@ def impute_df_no_nans(
       
     If both cluster and nearest cluster values are missing, the value remains NaN.
     """
-    # Simply copy the DataFrame; do NOT drop "EtCO2"
     df_imputed = df.copy()
 
-    # Optionally force EtCO2 to numeric
-    if "EtCO2" in df_imputed.columns:
-        df_imputed["EtCO2"] = pd.to_numeric(df_imputed["EtCO2"], errors="coerce")
-
     # Identify numeric columns to impute (exclude static columns)
-    exclude_cols = ["patient_id", "dataset", "SepsisLabel", "ICULOS", "Age", "Gender", "HospAdmTime"]
+    exclude_cols = ["patient_id", "dataset", "SepsisLabel", "ICULOS", "Age", "Gender", "HospAdmTime", "Unit1", "Unit2"]
     candidate_cols = [
         c for c in df_imputed.select_dtypes(include=[np.number]).columns
         if c not in exclude_cols
@@ -110,10 +106,8 @@ def impute_df_no_nans(
 
     # Decide which columns get linear vs cluster fill
     for col in candidate_cols:
-        # Force EtCO2 to be cluster-imputed so it shows in the cluster fill chart
-        if col == "EtCO2":
-            cluster_cols.append(col)
-        elif df_imputed[col].isna().mean() < nan_density:
+
+        if df_imputed[col].isna().mean() < nan_density:
             lin_cols.append(col)
         else:
             cluster_cols.append(col)
@@ -141,9 +135,7 @@ def impute_df_no_nans(
         "Age": age_bins,
         "HR": hr_bins,
         "MAP": map_bins,
-        "O2Sat": o2sat_bins,
-        "SBP": sbp_bins,
-        "Resp": resp_bins
+
     }
     clustering_features = {feat: bins for feat, bins in clustering_params.items() if bins > 0}
 
@@ -196,3 +188,37 @@ def impute_df_no_nans(
         }
 
     return df_imputed, replacement_stats
+
+
+def plot_cluster_distribution(df: pd.DataFrame) -> None:
+    cluster_counts = df["cluster_id"].value_counts().sort_index()
+    cleaned_labels = [
+        "_".join(part for part in cid.split("_") if part != "X")
+        for cid in cluster_counts.index
+    ]
+    plt.figure(figsize=(10, 6))
+    plt.bar(range(len(cluster_counts)), cluster_counts.values, color="lightblue")
+    plt.title("Frequency Distribution of Patient Clusters")
+    plt.xlabel("Cluster ID")
+    plt.ylabel("Number of Patients")
+    plt.tight_layout()
+    plt.show()
+
+def plot_cluster_fill(stats: dict) -> None:
+    # Filter columns that used the cluster-based method
+    cluster_cols = [col for col, stat in stats.items() if stat.get("Method") == "cluster"]
+
+
+    idx = np.arange(len(cluster_cols))
+    cluster_fill = [stats[col]["Cluster fill"] for col in cluster_cols]
+    nearest_fill = [stats[col]["Nearest cluster fill"] for col in cluster_cols]
+
+    plt.figure(figsize=(10, 6))
+    plt.bar(idx, cluster_fill, label="Cluster-mean fill", color="lightgreen")
+    plt.bar(idx, nearest_fill, bottom=cluster_fill, label="Nearest cluster-mean fill", color="lightblue")
+    plt.xticks(idx, cluster_cols, rotation=90)
+    plt.ylabel("Replacement Percentage")
+    plt.title("Cluster-Based Mean Replacement Percentages")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()

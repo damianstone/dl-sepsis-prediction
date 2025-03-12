@@ -7,6 +7,7 @@ import math
 from scipy.stats import ks_2samp, wasserstein_distance, entropy, chi2_contingency
 from scipy.spatial.distance import jensenshannon
 from scipy.stats import linregress
+import matplotlib.colors as mcolors
 
 def summariseSeperateDatasets(df, hospital_name):
     num_patients = df['patient_id'].nunique()
@@ -231,11 +232,112 @@ def compute_kl(arr1, arr2, bins=50):
 
 
 
+
+def plot_combined_metrics(results):
+    df = pd.DataFrame(results).T
+    
+    metrics_to_plot = ['KL Divergence', 'JSD', 'Wasserstein Distance', 'KS Statistic']
+    
+    df_plot = df[metrics_to_plot].apply(pd.to_numeric, errors='coerce').dropna()
+    
+    df_norm = (df_plot - df_plot.min()) / (df_plot.max() - df_plot.min())
+    
+    n = len(df_norm)
+    indices = np.arange(n)  
+    width = 0.2             
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    ax.bar(indices - 1.5*width, df_norm['KL Divergence'], width, label='KL Divergence')
+    ax.bar(indices - 0.5*width, df_norm['JSD'], width, label='JSD')
+    ax.bar(indices + 0.5*width, df_norm['Wasserstein Distance'], width, label='Wasserstein Distance')
+    ax.bar(indices + 1.5*width, df_norm['KS Statistic'], width, label='KS Statistic')
+    
+    ax.set_xlabel('Column Name')
+    ax.set_ylabel('Normalised Value')
+    ax.set_title('Combined Metrics Comparison (Normalised)')
+    ax.set_xticks(indices)
+    ax.set_xticklabels(df_norm.index, rotation=90, ha='right')
+    ax.legend()
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_combined_heatmap(results):
+    df = pd.DataFrame(results).T
+    
+    metrics_to_plot = ['KL Divergence', 'JSD', 'Wasserstein Distance', 'KS Statistic']
+    
+    df_plot = df[metrics_to_plot].apply(pd.to_numeric, errors='coerce').dropna()
+    
+    df_norm = (df_plot - df_plot.min()) / (df_plot.max() - df_plot.min())
+    
+    fig, ax = plt.subplots(figsize=(12, 8))
+    im = ax.imshow(df_norm, aspect='auto', cmap='viridis')
+    
+    ax.set_xticks(np.arange(len(metrics_to_plot)))
+    ax.set_xticklabels(metrics_to_plot, rotation=90, ha='right')
+    
+    ax.set_yticks(np.arange(len(df_norm.index)))
+    ax.set_yticklabels(df_norm.index)
+    
+    for i in range(len(df_norm.index)):
+        for j in range(len(metrics_to_plot)):
+            value = df_norm.iloc[i, j]
+            ax.text(j, i, f"{value:.2f}", ha="center", va="center", color="w")
+    # heatmap
+    plt.colorbar(im, ax=ax)
+    ax.set_title("Combined Metrics Heatmap (Normalised)")
+    plt.tight_layout()
+    plt.show()
+
+
+
+
+
+def plot_metrics(results):
+    df_metrics = pd.DataFrame(results).T
+
+    for col in df_metrics.columns:
+        df_metrics[col] = pd.to_numeric(df_metrics[col], errors='coerce')
+    
+    numeric_cols = df_metrics.columns[~df_metrics.isna().all()]
+    
+    numeric_cols = [col for col in numeric_cols if 'Chi2' not in col and 'Valid' not in col and 'p-value' not in col]
+    
+    if len(numeric_cols) == 0:
+        print("No numeric metrics available to plot.")
+        return
+
+    df_numeric = df_metrics[numeric_cols]
+    
+    num_metrics = len(numeric_cols)
+    
+    fig, axes = plt.subplots(num_metrics, 1, figsize=(10, 4 * num_metrics))
+    
+    if num_metrics == 1:
+        axes = [axes]
+    
+    for ax, metric in zip(axes, numeric_cols):
+        ax.bar(df_numeric.index, df_numeric[metric])
+        ax.set_title(f"{metric} by Column")
+        ax.set_xlabel("Column Name")
+        ax.set_ylabel(metric)
+        ax.tick_params(axis='x', rotation=90)
+    
+    plt.tight_layout()
+    plt.show()
+
+
+
+
+
 def compare_two_datasets(df_A, df_B, bins=50, gamma=1.0,
-                         ks_p_threshold=0.05, jsd_threshold=0.2, chi2_p_threshold=0.05):
+                         ks_p_threshold=0.05, jsd_threshold=0.5, chi2_p_threshold=0.05):
     results = {}
     common_cols = set(df_A.columns).intersection(set(df_B.columns))
-    
+    common_cols.discard("patient_id")
     for col in common_cols:
         res = {}
         series_A = df_A[col].dropna()
@@ -273,7 +375,82 @@ def compare_two_datasets(df_A, df_B, bins=50, gamma=1.0,
                 res['Valid Merge'] = False
         
         results[col] = res
+    
     return results
 
 
 
+def plot_feature_presence_by_prevalence(df: pd.DataFrame) -> None:
+    """
+    Shows a matrix of per-patient feature presence (0 = all NaN, 1 = some data),
+    with rows in the original patient order, and columns sorted by overall
+    feature prevalence.
+    """
+    # Exclude columns you do not want in the presence map
+    exclude_cols = [
+        "patient_id", "Age", "Gender", "HospAdmTime", 
+        "dataset", "SepsisLabel", "ICULOS", "Unit1", "Unit2"
+    ]
+    feature_cols = [col for col in df.columns if col not in exclude_cols]
+
+    # Capture the original order of patients as they appear in the DataFrame
+    # (groupby can change ordering, so we'll do this explicitly)
+    unique_patients_in_order = df["patient_id"].unique()
+    
+    # Build a list of DataFrames, one per patient, in the original order
+    patient_dfs = []
+    for pid in unique_patients_in_order:
+        patient_dfs.append(df[df["patient_id"] == pid])
+
+    # For each patient, determine if each feature is all NaN (0) or has data (1)
+    presence_rows = []
+    for pid_df in patient_dfs:
+        pid = pid_df["patient_id"].iloc[0]
+        row_data = {}
+        for col in feature_cols:
+            # 0 if completely empty (all NaN), 1 if there's at least one non-NaN
+            row_data[col] = 0 if pid_df[col].isna().all() else 1
+        presence_rows.append((pid, row_data))
+
+    # Convert to a DataFrame where rows = patients, columns = features
+    patient_presence = pd.DataFrame(
+        [row_data for (_, row_data) in presence_rows],
+        index=[pid for (pid, _) in presence_rows]
+    )
+    patient_presence.index.name = "patient_id"
+
+    # Compute overall prevalence of each feature = fraction of patients that have at least one value
+    feature_prevalence = patient_presence.mean(axis=0)  # average of 0/1 => fraction of 1's
+    
+    # Sort features by ascending prevalence
+    feature_prevalence_sorted = feature_prevalence.sort_values(ascending=False)
+    sorted_features = feature_prevalence_sorted.index.tolist()
+    
+    # Reorder columns in the presence matrix
+    presence_matrix = patient_presence[sorted_features].values
+
+    # Create a ListedColormap: 0 -> lightblue, 1 -> lightred
+    cmap = mcolors.ListedColormap(["lightblue", "lightred"])
+
+    plt.figure(figsize=(12, 8))
+    plt.imshow(presence_matrix, aspect='auto', cmap=cmap, interpolation='none')
+    
+    # Colorbar with custom ticks
+    cbar = plt.colorbar(ticks=[0, 1])
+    cbar.ax.set_yticklabels(['Empty', 'Non-empty'])
+
+    # X-axis labels = sorted features
+    plt.xticks(ticks=np.arange(len(sorted_features)), labels=sorted_features, rotation=90)
+
+    # Hide per-row y tick labels but keep the axis label
+    plt.yticks([])
+    plt.ylabel("Patient ID")
+
+    plt.title("Per-Patient Feature Presence Map (Features Sorted by Prevalence)")
+    plt.tight_layout()
+    plt.show()
+
+    # Print the feature prevalence (in ascending order)
+    print("Feature Prevalence (percentage of patients with at least one data point):")
+    for feature in feature_prevalence_sorted.index:
+        print(f"{feature}: {feature_prevalence[feature]*100:.2f}%")
