@@ -25,9 +25,10 @@
 * how long before it detects sepsis
 * how influencial are the least of sequences
 
-## Small dataset creation
+## Small dataset creation ideas
 * only 1.80% positive sepsis -> possible data imbalance for models
 * simple 50/50 sampling (for now)
+* stratified sampling, get x amount of positives and x amount of negatives form the big dataset
 
 ### 01_simple_transformer evaluation
 * trained with the original dataset (imputed_sofa) 80/20

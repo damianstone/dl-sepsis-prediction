@@ -65,15 +65,14 @@ class Dataset:
     # TODO: method to get the training and test data as tensor
     def get_train_test_tensors(self, size: Literal['small', 'full'], train_size):
         """
-        # 0. if dataset_tensors.pth exist then return the train test data and skip the step below
-        # 1. split into train and test from the original imbalance dataset
-        # 2. calculate the post_weight to the use it in the loss function
-        # 3. balance the train set 80/20 using sampling or the method "balance_dataset"
-        # 4. use the method "reduce_dataset" to make it smaller preserving the balance proportions 
-        # 5. get X_train and y_test from the new reduced balanced dataset
-        # 6. get X_test and y_test from the original imbalance dataset
-        # 7. save X_train, X_test, y_train and y_test as dataset_tensors.pth
-        
+        0. if dataset_tensors.pth exist then return the train test data and skip the step below
+        1. split into train and test from the original imbalance dataset
+        2. calculate the post_weight to the use it in the loss function
+        3. balance the train set 80/20 using sampling or the method "balance_dataset"
+        4. use the method "reduce_dataset" to make it smaller preserving the balance proportions 
+        5. get X_train and y_test from the new reduced balanced dataset
+        6. get X_test and y_test from the original imbalance dataset
+        7. save X_train, X_test, y_train and y_test as dataset_tensors.pth
         """
         # Step 0: Check if saved tensors exist.
         tensor_ds_path = f"{size}_{self.tensor_ds_path}"
