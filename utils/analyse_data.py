@@ -285,7 +285,7 @@ def plot_combined_heatmap(results):
         for j in range(len(metrics_to_plot)):
             value = df_norm.iloc[i, j]
             ax.text(j, i, f"{value:.2f}", ha="center", va="center", color="w")
-    
+    # heatmap
     plt.colorbar(im, ax=ax)
     ax.set_title("Combined Metrics Heatmap (Normalised)")
     plt.tight_layout()
