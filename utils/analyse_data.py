@@ -231,11 +231,112 @@ def compute_kl(arr1, arr2, bins=50):
 
 
 
+
+def plot_combined_metrics(results):
+    df = pd.DataFrame(results).T
+    
+    metrics_to_plot = ['KL Divergence', 'JSD', 'Wasserstein Distance', 'KS Statistic']
+    
+    df_plot = df[metrics_to_plot].apply(pd.to_numeric, errors='coerce').dropna()
+    
+    df_norm = (df_plot - df_plot.min()) / (df_plot.max() - df_plot.min())
+    
+    n = len(df_norm)
+    indices = np.arange(n)  
+    width = 0.2             
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    ax.bar(indices - 1.5*width, df_norm['KL Divergence'], width, label='KL Divergence')
+    ax.bar(indices - 0.5*width, df_norm['JSD'], width, label='JSD')
+    ax.bar(indices + 0.5*width, df_norm['Wasserstein Distance'], width, label='Wasserstein Distance')
+    ax.bar(indices + 1.5*width, df_norm['KS Statistic'], width, label='KS Statistic')
+    
+    ax.set_xlabel('Column Name')
+    ax.set_ylabel('Normalised Value')
+    ax.set_title('Combined Metrics Comparison (Normalised)')
+    ax.set_xticks(indices)
+    ax.set_xticklabels(df_norm.index, rotation=45, ha='right')
+    ax.legend()
+    
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_combined_heatmap(results):
+    df = pd.DataFrame(results).T
+    
+    metrics_to_plot = ['KL Divergence', 'JSD', 'Wasserstein Distance', 'KS Statistic']
+    
+    df_plot = df[metrics_to_plot].apply(pd.to_numeric, errors='coerce').dropna()
+    
+    df_norm = (df_plot - df_plot.min()) / (df_plot.max() - df_plot.min())
+    
+    fig, ax = plt.subplots(figsize=(12, 8))
+    im = ax.imshow(df_norm, aspect='auto', cmap='viridis')
+    
+    ax.set_xticks(np.arange(len(metrics_to_plot)))
+    ax.set_xticklabels(metrics_to_plot, rotation=45, ha='right')
+    
+    ax.set_yticks(np.arange(len(df_norm.index)))
+    ax.set_yticklabels(df_norm.index)
+    
+    for i in range(len(df_norm.index)):
+        for j in range(len(metrics_to_plot)):
+            value = df_norm.iloc[i, j]
+            ax.text(j, i, f"{value:.2f}", ha="center", va="center", color="w")
+    
+    plt.colorbar(im, ax=ax)
+    ax.set_title("Combined Metrics Heatmap (Normalised)")
+    plt.tight_layout()
+    plt.show()
+
+
+
+
+
+def plot_metrics(results):
+    df_metrics = pd.DataFrame(results).T
+
+    for col in df_metrics.columns:
+        df_metrics[col] = pd.to_numeric(df_metrics[col], errors='coerce')
+    
+    numeric_cols = df_metrics.columns[~df_metrics.isna().all()]
+    
+    numeric_cols = [col for col in numeric_cols if 'Chi2' not in col and 'Valid' not in col and 'p-value' not in col]
+    
+    if len(numeric_cols) == 0:
+        print("No numeric metrics available to plot.")
+        return
+
+    df_numeric = df_metrics[numeric_cols]
+    
+    num_metrics = len(numeric_cols)
+    
+    fig, axes = plt.subplots(num_metrics, 1, figsize=(10, 4 * num_metrics))
+    
+    if num_metrics == 1:
+        axes = [axes]
+    
+    for ax, metric in zip(axes, numeric_cols):
+        ax.bar(df_numeric.index, df_numeric[metric])
+        ax.set_title(f"{metric} by Column")
+        ax.set_xlabel("Column Name")
+        ax.set_ylabel(metric)
+        ax.tick_params(axis='x', rotation=90)
+    
+    plt.tight_layout()
+    plt.show()
+
+
+
+
+
 def compare_two_datasets(df_A, df_B, bins=50, gamma=1.0,
-                         ks_p_threshold=0.05, jsd_threshold=0.2, chi2_p_threshold=0.05):
+                         ks_p_threshold=0.05, jsd_threshold=0.5, chi2_p_threshold=0.05):
     results = {}
     common_cols = set(df_A.columns).intersection(set(df_B.columns))
-    
+    common_cols.discard("patient_id")
     for col in common_cols:
         res = {}
         series_A = df_A[col].dropna()
@@ -273,6 +374,7 @@ def compare_two_datasets(df_A, df_B, bins=50, gamma=1.0,
                 res['Valid Merge'] = False
         
         results[col] = res
+    
     return results
 
 
