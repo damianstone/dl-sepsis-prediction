@@ -7,6 +7,7 @@ import math
 from scipy.stats import ks_2samp, wasserstein_distance, entropy, chi2_contingency
 from scipy.spatial.distance import jensenshannon
 from scipy.stats import linregress
+import matplotlib.colors as mcolors
 
 def summariseSeperateDatasets(df, hospital_name):
     num_patients = df['patient_id'].nunique()
@@ -256,7 +257,7 @@ def plot_combined_metrics(results):
     ax.set_ylabel('Normalised Value')
     ax.set_title('Combined Metrics Comparison (Normalised)')
     ax.set_xticks(indices)
-    ax.set_xticklabels(df_norm.index, rotation=45, ha='right')
+    ax.set_xticklabels(df_norm.index, rotation=90, ha='right')
     ax.legend()
     
     plt.tight_layout()
@@ -276,7 +277,7 @@ def plot_combined_heatmap(results):
     im = ax.imshow(df_norm, aspect='auto', cmap='viridis')
     
     ax.set_xticks(np.arange(len(metrics_to_plot)))
-    ax.set_xticklabels(metrics_to_plot, rotation=45, ha='right')
+    ax.set_xticklabels(metrics_to_plot, rotation=90, ha='right')
     
     ax.set_yticks(np.arange(len(df_norm.index)))
     ax.set_yticklabels(df_norm.index)
@@ -379,3 +380,77 @@ def compare_two_datasets(df_A, df_B, bins=50, gamma=1.0,
 
 
 
+def plot_feature_presence_by_prevalence(df: pd.DataFrame) -> None:
+    """
+    Shows a matrix of per-patient feature presence (0 = all NaN, 1 = some data),
+    with rows in the original patient order, and columns sorted by overall
+    feature prevalence.
+    """
+    # Exclude columns you do not want in the presence map
+    exclude_cols = [
+        "patient_id", "Age", "Gender", "HospAdmTime", 
+        "dataset", "SepsisLabel", "ICULOS", "Unit1", "Unit2"
+    ]
+    feature_cols = [col for col in df.columns if col not in exclude_cols]
+
+    # Capture the original order of patients as they appear in the DataFrame
+    # (groupby can change ordering, so we'll do this explicitly)
+    unique_patients_in_order = df["patient_id"].unique()
+    
+    # Build a list of DataFrames, one per patient, in the original order
+    patient_dfs = []
+    for pid in unique_patients_in_order:
+        patient_dfs.append(df[df["patient_id"] == pid])
+
+    # For each patient, determine if each feature is all NaN (0) or has data (1)
+    presence_rows = []
+    for pid_df in patient_dfs:
+        pid = pid_df["patient_id"].iloc[0]
+        row_data = {}
+        for col in feature_cols:
+            # 0 if completely empty (all NaN), 1 if there's at least one non-NaN
+            row_data[col] = 0 if pid_df[col].isna().all() else 1
+        presence_rows.append((pid, row_data))
+
+    # Convert to a DataFrame where rows = patients, columns = features
+    patient_presence = pd.DataFrame(
+        [row_data for (_, row_data) in presence_rows],
+        index=[pid for (pid, _) in presence_rows]
+    )
+    patient_presence.index.name = "patient_id"
+
+    # Compute overall prevalence of each feature = fraction of patients that have at least one value
+    feature_prevalence = patient_presence.mean(axis=0)  # average of 0/1 => fraction of 1's
+    
+    # Sort features by ascending prevalence
+    feature_prevalence_sorted = feature_prevalence.sort_values(ascending=False)
+    sorted_features = feature_prevalence_sorted.index.tolist()
+    
+    # Reorder columns in the presence matrix
+    presence_matrix = patient_presence[sorted_features].values
+
+    # Create a ListedColormap: 0 -> lightblue, 1 -> lightred
+    cmap = mcolors.ListedColormap(["lightblue", "lightred"])
+
+    plt.figure(figsize=(12, 8))
+    plt.imshow(presence_matrix, aspect='auto', cmap=cmap, interpolation='none')
+    
+    # Colorbar with custom ticks
+    cbar = plt.colorbar(ticks=[0, 1])
+    cbar.ax.set_yticklabels(['Empty', 'Non-empty'])
+
+    # X-axis labels = sorted features
+    plt.xticks(ticks=np.arange(len(sorted_features)), labels=sorted_features, rotation=90)
+
+    # Hide per-row y tick labels but keep the axis label
+    plt.yticks([])
+    plt.ylabel("Patient ID")
+
+    plt.title("Per-Patient Feature Presence Map (Features Sorted by Prevalence)")
+    plt.tight_layout()
+    plt.show()
+
+    # Print the feature prevalence (in ascending order)
+    print("Feature Prevalence (percentage of patients with at least one data point):")
+    for feature in feature_prevalence_sorted.index:
+        print(f"{feature}: {feature_prevalence[feature]*100:.2f}%")
