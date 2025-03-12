@@ -74,12 +74,10 @@ def impute_df_no_nans(
     df: pd.DataFrame,
     nan_density: float = 0.3,
     gender_bins: int = 2,
-    age_bins: int = 5,
-    hr_bins: int = 3,
-    map_bins: int = 0,
-    o2sat_bins: int = 0,
-    sbp_bins: int = 0,
-    resp_bins: int = 0
+    age_bins: int = 10,
+    hr_bins: int = 5,
+    map_bins: int = 5,
+
 ) -> tuple:
     """
     Imputes missing values in the DataFrame using two approaches:
@@ -91,15 +89,10 @@ def impute_df_no_nans(
       
     If both cluster and nearest cluster values are missing, the value remains NaN.
     """
-    # Simply copy the DataFrame; do NOT drop "EtCO2"
     df_imputed = df.copy()
 
-    # Optionally force EtCO2 to numeric
-    if "EtCO2" in df_imputed.columns:
-        df_imputed["EtCO2"] = pd.to_numeric(df_imputed["EtCO2"], errors="coerce")
-
     # Identify numeric columns to impute (exclude static columns)
-    exclude_cols = ["patient_id", "dataset", "SepsisLabel", "ICULOS", "Age", "Gender", "HospAdmTime"]
+    exclude_cols = ["patient_id", "dataset", "SepsisLabel", "ICULOS", "Age", "Gender", "HospAdmTime", "Unit1", "Unit2"]
     candidate_cols = [
         c for c in df_imputed.select_dtypes(include=[np.number]).columns
         if c not in exclude_cols
@@ -110,10 +103,8 @@ def impute_df_no_nans(
 
     # Decide which columns get linear vs cluster fill
     for col in candidate_cols:
-        # Force EtCO2 to be cluster-imputed so it shows in the cluster fill chart
-        if col == "EtCO2":
-            cluster_cols.append(col)
-        elif df_imputed[col].isna().mean() < nan_density:
+
+        if df_imputed[col].isna().mean() < nan_density:
             lin_cols.append(col)
         else:
             cluster_cols.append(col)
@@ -141,9 +132,7 @@ def impute_df_no_nans(
         "Age": age_bins,
         "HR": hr_bins,
         "MAP": map_bins,
-        "O2Sat": o2sat_bins,
-        "SBP": sbp_bins,
-        "Resp": resp_bins
+
     }
     clustering_features = {feat: bins for feat, bins in clustering_params.items() if bins > 0}
 
