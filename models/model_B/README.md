@@ -40,6 +40,8 @@
 #### Precision - recall
 * precision drops as recall increases, meaning that capturing more positives leads to more false positives due to dataset imbalance
 
-### 01_simple_transformer evaluation
+### 03_simple_transformer evaluation
 * trained with X_train, y_train as balance dataset 80/20
 * tested with X_test, y_test as unbalance (original) dataset
+* 100 epochs
+* 77.69% acc on test data

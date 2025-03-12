@@ -1,5 +1,6 @@
 import torch
 import os
+import json
 import pandas as pd
 import seaborn as sns
 import numpy as np
@@ -10,6 +11,7 @@ from sklearn.utils import resample
 from sklearn.metrics import roc_curve, auc
 from sklearn.metrics import precision_recall_curve
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import precision_recall_curve, roc_auc_score, f1_score, classification_report
 
 FEATURE_NAMES = ['HR', 'O2Sat', 'Temp', 'SBP', 'MAP', 'DBP', 'Resp', 'BaseExcess',
                                 'HCO3', 'FiO2', 'pH', 'PaCO2', 'SaO2', 'AST', 'BUN', 'Alkalinephos',
@@ -148,3 +150,37 @@ def save_plots(y_test, y_probs, y_pred, model, feature_names, attention_weights,
         fig = plot_func(*args)  
         fig.savefig(os.path.join(save_path, filename), bbox_inches='tight') 
         plt.close(fig)
+
+########################################## METRICS #############################################################
+def save_metrics(y_test, 
+                 y_probs, 
+                 y_pred, 
+                 eval):
+    notebook_dir = os.getcwd()
+    root = os.path.abspath(os.path.join(notebook_dir, "../.."))
+    save_path = f"{root}/models/model_B/results/{eval}"
+    os.makedirs(save_path, exist_ok=True)
+
+    # Compute precision, recall, thresholds
+    precision, recall, thresholds = precision_recall_curve(y_test, y_probs)
+    f1_scores = 2 * (precision * recall) / (precision + recall + 1e-8)  # Avoid division by zero
+    best_threshold = thresholds[np.argmax(f1_scores)] if len(thresholds) > 0 else 0.5
+
+    # Compute overall metrics
+    auc_score = roc_auc_score(y_test, y_probs)
+    f1 = f1_score(y_test, y_pred)
+    report = classification_report(y_test, y_pred, output_dict=True)
+
+    metrics = {
+        "AUC": round(float(auc_score), 4),
+        "Best Threshold": round(float(best_threshold), 4),
+        "Precision at Best Threshold": round(float(precision[np.argmax(f1_scores)]), 4),
+        "Recall at Best Threshold": round(float(recall[np.argmax(f1_scores)]), 4),
+        "F1 Score": round(float(f1), 4),
+        "Classification Report": report,
+    }
+
+    with open(os.path.join(save_path, "metrics.json"), "w") as f:
+        json.dump(metrics, f, indent=4)
+
+    print(f"Metrics saved to {save_path}/metrics.json")
