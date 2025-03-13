@@ -13,7 +13,7 @@ class TransformerClassifier(nn.Module):
     num_layers = more make the model deeper but can overfit if too high
     """
 
-    def __init__(self, input_dim, num_heads=2, num_layers=6):
+    def __init__(self, input_dim, num_heads=2, num_layers=2):
         super().__init__()
         # d_model = input_dim (number of features)
         self.encoder_layer = nn.TransformerEncoderLayer(
