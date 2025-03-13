@@ -6,6 +6,7 @@ import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
 from torch import nn
+from torch.utils.data import TensorDataset, DataLoader, random_split
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
 from sklearn.metrics import roc_curve, auc
@@ -81,6 +82,29 @@ def get_full_balanced_dataset_tensors(data_path="balanced_dataset.parquet", save
                "y_train": y_train}, path)
 
     return X_train, y_train
+
+def get_train_val_loaders(X_train, y_train, batch_size=32, val_split=0.2):
+    dataset = TensorDataset(X_train, y_train)
+    n_total = len(dataset)
+    n_val = int(n_total * val_split)
+    n_train = n_total - n_val
+    train_dataset, val_dataset = random_split(dataset, [n_train, n_val])
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    return train_loader, val_loader
+
+def display_balance_statistics(df):
+    patient_df = df.groupby("patient_id")["SepsisLabel"].max().reset_index()
+    counts = patient_df["SepsisLabel"].value_counts()
+    total_patients = counts.sum()
+    print("Patient-level balance statistics:")
+    print("Total patients:", total_patients)
+    for label, count in counts.items():
+        perc = (count / total_patients) * 100
+        print(f"Label {label}: {count} patients ({perc:.2f}%)")
+    if len(counts) >= 2:
+        imbalance_ratio = counts.max() / counts.min()
+        print(f"Imbalance ratio (majority/minority): {imbalance_ratio:.2f}")
 
 
 ########################################## PLOTS #############################################################

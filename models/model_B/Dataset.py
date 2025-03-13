@@ -4,6 +4,7 @@ import pandas as pd
 from typing import Literal
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
+from t_utils import display_balance_statistics
 
 class Dataset:
     def __init__(self, 
@@ -11,7 +12,7 @@ class Dataset:
                  save_path="dataset_tensors.pth", 
                  method="oversample",
                  balance=False,
-                 minority_ratio=0.2, 
+                 minority_ratio=0.2,
                  target_column="SepsisLabel"):
         self.data_path = data_path
         self.save_path = save_path
@@ -19,48 +20,95 @@ class Dataset:
         self.balance = balance
         self.minority_ratio = minority_ratio
         self.target_column = target_column
-        self.pos_weight = None
 
         current_dir = os.getcwd()
         self.project_root = os.path.abspath(os.path.join(current_dir, "../.."))
         self.tensor_ds_path = os.path.join(self.project_root, "dataset", self.save_path)
 
-    # TODO: balance formula
-    def balance_dataset(self, df):
+    # TODO: over and under sampling
+    def balance_over_under_sample(df, method="oversample", minority_ratio=0.5):
         """
-        sampling technique: oversampling increases the number of minority class samples, 
-        while undersampling reduces the number of majority class samples
-
-        what it does: adjusts class distribution by either duplicating 
-        minority samples (oversampling) or removing majority samples (undersampling) 
-        to improve model learning balance
-        """
-        counts = df[self.target_column].value_counts()
-        majority_class = counts.idxmax()
-        minority_class = counts.idxmin()
+        Balances the dataset at the patient level.
         
-        df_majority = df[df[self.target_column] == majority_class]
-        df_minority = df[df[self.target_column] == minority_class]
-
-        if self.method == "oversample":
-            n_samples = int(len(df_majority) * self.minority_ratio)
-            df_minority_upsampled = resample(df_minority, replace=True, n_samples=n_samples, random_state=42)
-            df_balanced = pd.concat([df_majority, df_minority_upsampled])
-        elif self.method == "undersample":
-            n_samples = int(len(df_majority) * self.minority_ratio)
-            df_majority_downsampled = resample(df_majority, replace=False, n_samples=n_samples, random_state=42)
-            df_balanced = pd.concat([df_majority_downsampled, df_minority])
+        Each patient's overall sepsis label is taken as the maximum value
+        (if any record shows sepsis, the patient is marked as septic).
+        
+        We then either oversample the septic (minority) patients or undersample
+        the non-septic (majority) patients to change the ratio.
+        
+        In the final dataset, each copy of a patient gets a unique ID so that
+        oversampled patients appear as separate instances.
+        """
+        # Create a patient-level summary with one record per patient.
+        patient_df = df.groupby("patient_id")["SepsisLabel"].max().reset_index()
+        
+        # Count patients in each group.
+        counts = patient_df["SepsisLabel"].value_counts()
+        majority_class = counts.idxmax()  # e.g., non-septic (0)
+        minority_class = counts.idxmin()  # e.g., septic (1)
+        
+        # Split the patients into majority and minority groups.
+        majority_patients = patient_df[patient_df["SepsisLabel"] == majority_class]
+        minority_patients = patient_df[patient_df["SepsisLabel"] == minority_class]
+        
+        # Resample based on the chosen method.
+        if method == "oversample":
+            # Duplicate minority patients to reach desired ratio.
+            # n_samples = int(len(majority_patients) * minority_ratio)
+            n_desired_minority = int((minority_ratio * len(majority_patients)) / (1 - minority_ratio))
+            minority_upsampled = resample(minority_patients, replace=True, 
+                                        n_samples=n_desired_minority, random_state=42)
+            balanced_patient_df = pd.concat([majority_patients, minority_upsampled])
+        elif method == "undersample":
+            # Remove some majority patients to reach desired ratio.
+            # n_samples = int(len(minority_patients) / minority_ratio)
+            n_desired_majority = int(((1 - minority_ratio) / minority_ratio) * len(minority_patients))
+            majority_downsampled = resample(majority_patients, replace=False, 
+                                            n_samples=n_desired_majority, random_state=42)
+            balanced_patient_df = pd.concat([majority_downsampled, minority_patients])
         else:
             raise ValueError("Method must be 'oversample' or 'undersample'")
         
-        return df_balanced.sample(frac=1, random_state=42).reset_index(drop=True) 
+        # Rebuild the full dataset with patient records.
+        # If a patient appears more than once due to resampling,
+        # assign a new unique patient ID to each duplicate.
+        final_dfs = []
+        patient_occurrences = {}
+        
+        for pid in balanced_patient_df["patient_id"]:
+            # Get all records for this patient.
+            patient_records = df[df["patient_id"] == pid].copy()
+            # Count how many times this patient has been added.
+            if pid in patient_occurrences:
+                patient_occurrences[pid] += 1
+                # Create a new unique ID by appending a suffix.
+                new_pid = f"{pid}_dup{patient_occurrences[pid]}"
+                patient_records["patient_id"] = new_pid
+            else:
+                patient_occurrences[pid] = 0  # first occurrence, keep original ID
+            final_dfs.append(patient_records)
+        
+        balanced_df = pd.concat(final_dfs, ignore_index=True)
+        
+        display_balance_statistics(balanced_df)
+        return balanced_df
 
     # TODO: method to get a smaller dataset preserving the balance proportions
-    def reduce_dataset(self, df, train_size=0.3):
-        reduced_df, _ = train_test_split(
-            df, train_size=train_size, random_state=42, stratify=df[self.target_column]
+    def reduce_dataset(self, df, sample_fraction=0.1):
+        # Create a patient-level summary (each patient gets one label, 1 if any record is positive)
+        patient_df = df.groupby("patient_id")["SepsisLabel"].max().reset_index()
+        
+        # Stratified sampling to get a subset of patient IDs
+        sample_ids, _ = train_test_split(
+            patient_df["patient_id"], 
+            train_size=sample_fraction, 
+            stratify=patient_df["SepsisLabel"], 
+            random_state=42
         )
-        return reduced_df
+        
+        # Return the full records for the sampled patients
+        quick_train_df = df[df["patient_id"].isin(sample_ids)].copy()
+        return quick_train_df
     
     # TODO: method to get the training and test data as tensor
     def get_train_test_tensors(self, size: Literal['small', 'full'], train_size):
@@ -90,7 +138,7 @@ class Dataset:
 
         # Step 3: Balance the training set using the specified sampling method.
         if self.balance:
-            train_df = self.balance_dataset(train_df)
+            train_df = self.balance_over_under_sample(train_df, self.minority_ratio)
             print("Balanced training set balance:")
             print(train_df[self.target_column].value_counts())
 
