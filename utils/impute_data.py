@@ -95,7 +95,7 @@ def impute_df_no_nans(
     df_imputed = df.copy()
 
     # Identify numeric columns to impute (exclude static columns)
-    exclude_cols = ["patient_id", "dataset", "SepsisLabel", "ICULOS", "Age", "Gender", "HospAdmTime", "Unit1", "Unit2"]
+    exclude_cols = ["patient_id", "dataset", "SepsisLabel", "ICULOS", "Age", "Gender", "HospAdmTime"]
     candidate_cols = [
         c for c in df_imputed.select_dtypes(include=[np.number]).columns
         if c not in exclude_cols
@@ -222,3 +222,22 @@ def plot_cluster_fill(stats: dict) -> None:
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+def print_replacement_stats(stats: dict) -> None:
+    """Prints formatted replacement statistics."""
+    print("\nReplacement statistics (percentages):")
+    label_map = {
+        "Linear fill": "Linear fill",
+        "Cluster fill": "Cluster-mean fill",
+        "Nearest cluster fill": "Nearest cluster-mean fill",
+        "Initial missing": "Initial missing"
+    }
+    for col, col_stats in stats.items():
+        print(f"Column: {col}")
+        for key, value in col_stats.items():
+            key_print = label_map.get(key, key.capitalize())
+            if isinstance(value, (int, float)):
+                print(f"  {key_print}: {value:.2f}%")
+            else:
+                print(f"  {key_print}: {value}")
+
