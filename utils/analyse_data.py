@@ -263,6 +263,27 @@ def plot_combined_metrics(results):
     plt.show()
 
 
+def plot_inbalance_pie_chart():
+    values = [8.8, 91.2]
+    labels = ['Sepsis %', 'Non-Sepsis %']
+    colors = ['#36454F', '#E0E0E0']
+    
+    plt.figure(figsize=(5, 5))
+    plt.pie(values, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90)
+    plt.title('Hospital A (8.8%)')
+    plt.axis('equal')  
+    plt.show()
+
+    values = [5.7, 94.3]
+    labels = ['Sepsis %', 'Non-Sepsis %']
+    colors = ['#36454F', '#E0E0E0']
+    
+    plt.figure(figsize=(5, 5))
+    plt.pie(values, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90)
+    plt.title('Hospital B (5.7%)')
+    plt.axis('equal')  
+    plt.show()
+
 def plot_combined_heatmap(results):
     df = pd.DataFrame(results).T
     
