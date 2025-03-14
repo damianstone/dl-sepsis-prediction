@@ -24,7 +24,7 @@ class TransformerClassifier(nn.Module):
         # linear layer to map the output to a single value (binary classification)
         self.linear_layer = nn.Linear(in_features=input_dim, out_features=1)
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         # Output shape: (batch_size, features)
         z = self.encoder(x)
         return self.linear_layer(z)

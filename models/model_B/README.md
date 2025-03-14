@@ -13,6 +13,19 @@
 * useful for irregular data (time series)
 * separately handles static (age, gender) and temporal variables for improved predictions
 
+## Custom dataset
+* padding -> adding extra values (zeros) to make all the sequences the same length, allow consistent shape
+* we can add `masking` to tell the model to ignore padded values and prevent noise 
+```python
+Patient A records: [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]  (Length 2)  
+Patient B records: [[0.7, 0.8, 0.9]]  (Length 1)  
+
+After
+Patient A: [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]  
+Patient B: [[0.7, 0.8, 0.9], [0.0, 0.0, 0.0]]  (extra row added)  
+```
+* 
+
 ## Metrics
 * AUC-ROC: tells how well your model separates patients with and without sepsis
 * precision, Recall, F1: tell how many sepsis cases your model finds correctly and incorrectly
