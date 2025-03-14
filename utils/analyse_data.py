@@ -265,21 +265,21 @@ def plot_combined_metrics(results):
 
 def plot_inbalance_pie_chart():
     values = [8.8, 91.2]
-    labels = ['Sepsis %', 'Non-Sepsis %']
-    colors = ['#36454F', '#E0E0E0']
+    colors = ['#7393B3', '#E0E0E0']
     
     plt.figure(figsize=(5, 5))
-    plt.pie(values, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90)
+    wedges, texts, autotexts = plt.pie(values, autopct='%1.1f%%', colors=colors, startangle=90,
+                                       wedgeprops={'edgecolor': 'black', 'linewidth': 1.5}, textprops={'fontsize': 20})
     plt.title('Hospital A (8.8%)')
     plt.axis('equal')  
     plt.show()
 
     values = [5.7, 94.3]
-    labels = ['Sepsis %', 'Non-Sepsis %']
-    colors = ['#36454F', '#E0E0E0']
+    colors = ['#7393B3', '#E0E0E0']
     
     plt.figure(figsize=(5, 5))
-    plt.pie(values, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90)
+    wedges, texts, autotexts = plt.pie(values, autopct='%1.1f%%', colors=colors, startangle=90,
+                                       wedgeprops={'edgecolor': 'black', 'linewidth': 1.5}, textprops={'fontsize': 20})
     plt.title('Hospital B (5.7%)')
     plt.axis('equal')  
     plt.show()
