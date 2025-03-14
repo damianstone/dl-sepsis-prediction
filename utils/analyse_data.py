@@ -93,7 +93,6 @@ def plot_density_of_actual_values(df, value_col='ICULOS'):
     plt.fill_between(avg_density.index, avg_density.values, alpha=0.3, color='navy')
     plt.xlabel('ICU Length of Stay (hours)')
     plt.ylabel('Average Density of Actual Values')
-    plt.title('Average Density of Actual Values over ICU Length of Stay (Patient-Averaged)')
     plt.grid(alpha=0.3)
     plt.show()
 
@@ -254,7 +253,6 @@ def plot_combined_metrics(results):
     ax.bar(indices - 0.5*width, df_norm['JSD'], width, label='JSD')
     
     ax.set_ylabel('Normalised Value')
-    ax.set_title('Combined Metrics Comparison (Normalised)')
     ax.set_xticks(indices)
     ax.set_xticklabels(df_norm.index, rotation=90, ha='right')
     ax.legend()
@@ -308,7 +306,6 @@ def plot_combined_heatmap(results):
     #         ax.text(j, i, f"{value:.2f}", ha="center", va="center", color="w")
     # heatmap
     plt.colorbar(im, ax=ax)
-    ax.set_title("Combined Metrics Heatmap (Normalised)")
     plt.tight_layout()
     plt.show()
 
