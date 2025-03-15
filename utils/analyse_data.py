@@ -75,7 +75,7 @@ def nullCols(df):
     missing_percent = missing_counts / len(df) * 100
     missing_percent_sorted = missing_percent.sort_values(ascending=False)
     plt.figure(figsize=(12, 6))
-    plt.bar(missing_percent_sorted.index, missing_percent_sorted.values, color='skyblue')
+    plt.bar(missing_percent_sorted.index, missing_percent_sorted.values, color='#7393B3')
     plt.ylabel("Missing Percentage")
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
