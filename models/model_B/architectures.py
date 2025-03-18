@@ -25,6 +25,6 @@ class TransformerClassifier(nn.Module):
         self.linear_layer = nn.Linear(in_features=input_dim, out_features=1)
 
     def forward(self, x, mask=None):
-        # Output shape: (batch_size, features)
-        z = self.encoder(x)
-        return self.linear_layer(z)
+        """Pass mask to ignore padding in self-attention"""
+        z = self.encoder(x, src_key_padding_mask=mask)
+        return self.linear_layer(z[:, -1, :])  # Use last time step for classification

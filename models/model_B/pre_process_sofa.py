@@ -5,6 +5,18 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
+from pathlib import Path
+
+def find_project_root(marker=".gitignore"):
+    """
+    walk up from the current working directory until a directory containing the
+    specified marker (e.g., .gitignore) is found.
+    """
+    current = Path.cwd()
+    for parent in [current] + list(current.parents):
+        if (parent / marker).exists():
+            return parent.resolve()
+    raise FileNotFoundError(f"Project root marker '{marker}' not found starting from {current}")
 
 def calculate_sofa(row):
     sofa = 0
@@ -35,17 +47,8 @@ def calculate_sofa(row):
 
     return sofa
 
-def main():
-    parser = argparse.ArgumentParser(description="Process an imputed dataset and add SOFA scores")
-    parser.add_argument("--input_file", type=str, required=True)
-    parser.add_argument("--output_file", type=str, required=True)
-
-    args = parser.parse_args()
-    input_file = args.input_file
-    output_file = args.output_file
-
-    notebook_dir = os.getcwd()
-    project_root = os.path.abspath(os.path.join(notebook_dir, "../.."))
+def pre_process_sofa(input_file,output_file):
+    project_root = find_project_root()
     print("Project root:", project_root)
     if project_root not in sys.path:
         sys.path.append(project_root)
@@ -84,11 +87,11 @@ def main():
 
     # Save the processed dataset to the provided output file
     try:
-        to_save = f"{project_root}/dataset/{output_file}.parquet"
+        to_save = f"{project_root}/dataset/{output_file}"
         imputed_df.to_parquet(to_save, index=False)
-        print(f"\nDataset successfully saved to {to_save}.parquet")
+        print(f"\nDataset successfully saved to {to_save}")
     except Exception as e:
         sys.exit(f"Error saving dataset to {to_save}: {e}")
 
 if __name__ == '__main__':
-    main()
+    pre_process_sofa("Fully_imputed_dataset.parquet","big_imputed_sofa.parquet")
