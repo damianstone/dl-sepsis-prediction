@@ -77,7 +77,7 @@ def nullCols(df):
     plt.figure(figsize=(12, 6))
     plt.bar(missing_percent_sorted.index, missing_percent_sorted.values, color='#7393B3')
     plt.ylabel("Missing Percentage")
-    plt.xticks(rotation=45, ha='right')
+    plt.xticks(rotation=90, ha='right')
     plt.tight_layout()
     plt.show()
 
@@ -312,35 +312,44 @@ def plot_combined_heatmap(results):
 
 
 def plot_metrics(results):
+    # Create a DataFrame from the results and transpose it so that rows become the different items
     df_metrics = pd.DataFrame(results).T
 
+    
+    # Convert all columns to numeric (coercing errors to NaN)
     for col in df_metrics.columns:
         df_metrics[col] = pd.to_numeric(df_metrics[col], errors='coerce')
     
+    # Identify numeric columns that are not completely NaN
     numeric_cols = df_metrics.columns[~df_metrics.isna().all()]
     
-    numeric_cols = [col for col in numeric_cols if 'Chi2' not in col and 'Valid' not in col and 'p-value' not in col]
+    # Filter for the specific metric (here only 'JSD' is plotted; modify as needed)
+    numeric_cols = [col for col in numeric_cols if col == 'JSD']
     
     if len(numeric_cols) == 0:
         print("No numeric metrics available to plot.")
         return
 
-    df_numeric = df_metrics[numeric_cols]
-    
     num_metrics = len(numeric_cols)
     
-    fig, axes = plt.subplots(num_metrics, 1, figsize=(10, 4 * num_metrics))
-    
+    # Create subplots, one for each metric
+    fig, axes = plt.subplots(num_metrics, 1, figsize=(12, 5 * num_metrics))
     if num_metrics == 1:
         axes = [axes]
     
+    # Plot each metric after sorting its values in descending order
     for ax, metric in zip(axes, numeric_cols):
-        ax.bar(df_numeric.index, df_numeric[metric])
+        sorted_data = df_metrics[metric].sort_values(ascending=False)
+        sorted_data = sorted_data[:-2]
+        print(sorted_data)
+        print(len(sorted_data))
+        ax.bar(sorted_data.index, sorted_data.values, color='#7393B3')
         ax.set_ylabel(metric)
         ax.tick_params(axis='x', rotation=90)
     
     plt.tight_layout()
     plt.show()
+
 
 
 
@@ -442,7 +451,7 @@ def plot_feature_presence_by_prevalence(df: pd.DataFrame) -> None:
     presence_matrix = patient_presence[sorted_features].values
 
     # Create a ListedColormap: 0 -> lightblue, 1 -> lightred
-    cmap = mcolors.ListedColormap(["lightblue", "lightred"])
+    cmap = mcolors.ListedColormap(['#E0E0E0', '#7393B3'])
 
     plt.figure(figsize=(12, 8))
     plt.imshow(presence_matrix, aspect='auto', cmap=cmap, interpolation='none')
@@ -458,7 +467,7 @@ def plot_feature_presence_by_prevalence(df: pd.DataFrame) -> None:
     plt.yticks([])
     plt.ylabel("Patient ID")
 
-    plt.title("Per-Patient Feature Presence Map (Features Sorted by Prevalence)")
+    #plt.title("Per-Patient Feature Presence Map (Features Sorted by Prevalence)")
     plt.tight_layout()
     plt.show()
 

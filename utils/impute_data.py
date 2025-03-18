@@ -196,9 +196,10 @@ def plot_cluster_distribution(df: pd.DataFrame) -> None:
         "_".join(part for part in cid.split("_") if part != "X")
         for cid in cluster_counts.index
     ]
+
     plt.figure(figsize=(10, 6))
-    plt.bar(range(len(cluster_counts)), cluster_counts.values, color="lightblue")
-    plt.title("Frequency Distribution of Patient Clusters")
+    plt.bar(range(len(cluster_counts)), cluster_counts.values, color="#7393B3")
+    #plt.title("Frequency Distribution of Patient Clusters")
     plt.xlabel("Cluster ID")
     plt.ylabel("Number of Patients")
     plt.tight_layout()
@@ -212,13 +213,11 @@ def plot_cluster_fill(stats: dict) -> None:
     idx = np.arange(len(cluster_cols))
     cluster_fill = [stats[col]["Cluster fill"] for col in cluster_cols]
     nearest_fill = [stats[col]["Nearest cluster fill"] for col in cluster_cols]
-
     plt.figure(figsize=(10, 6))
-    plt.bar(idx, cluster_fill, label="Cluster-mean fill", color="lightgreen")
-    plt.bar(idx, nearest_fill, bottom=cluster_fill, label="Nearest cluster-mean fill", color="lightblue")
+    plt.bar(idx, cluster_fill, label="Cluster-mean fill", color="#7393B3")
+    plt.bar(idx, nearest_fill, bottom=cluster_fill, label="Nearest cluster-mean fill", color="#E0E0E0")
     plt.xticks(idx, cluster_cols, rotation=90)
     plt.ylabel("Replacement Percentage")
-    plt.title("Cluster-Based Mean Replacement Percentages")
     plt.legend()
     plt.tight_layout()
     plt.show()
