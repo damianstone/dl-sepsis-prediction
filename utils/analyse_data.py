@@ -2,12 +2,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import os
 from scipy.stats import ks_2samp
 import math
 from scipy.stats import ks_2samp, wasserstein_distance, entropy, chi2_contingency
 from scipy.spatial.distance import jensenshannon
 from scipy.stats import linregress
 import matplotlib.colors as mcolors
+from scipy.stats import gaussian_kde
 
 def summariseSeperateDatasets(df, hospital_name):
     num_patients = df['patient_id'].nunique()
@@ -98,34 +100,35 @@ def plot_density_of_actual_values(df, value_col='ICULOS'):
 
 
 
-def distributions(df, columns=None, ncols=3):
+def distributions(df, columns=None):
+    output_dir = os.path.join("images", "sepsisDistributions")
+    os.makedirs(output_dir, exist_ok=True)
     if columns is None:
         exclude = ['patient_id', 'dataset', 'SepsisLabel', 'Unit1', 'Unit2']
         numeric_cols = df.select_dtypes(include=['number']).columns
         columns = [col for col in numeric_cols if col not in exclude]
-    n = len(columns)
-    nrows = math.ceil(n / ncols)
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols * 5, nrows * 4))
-    if nrows * ncols > 1:
-        axes = axes.flatten()
-    else:
-        axes = [axes]
-    for i, col in enumerate(columns):
+    
+    for col in columns:
+        plt.figure(figsize=(6, 4))
         sepsis_data = df[df['SepsisLabel'] == 1][col].dropna()
         non_sepsis_data = df[df['SepsisLabel'] == 0][col].dropna()
         ks_result = ks_2samp(sepsis_data, non_sepsis_data)
-        ax = axes[i]
-        sns.kdeplot(sepsis_data, ax=ax, label='Sepsis', shade=True, color='red', alpha=0.5)
-        sns.kdeplot(non_sepsis_data, ax=ax, label='Non-Sepsis', shade=True, color='blue', alpha=0.5)
-        ax.axvline(sepsis_data.mean(), color='red', linestyle='--', linewidth=1.5, label='Sepsis Mean')
-        ax.axvline(non_sepsis_data.mean(), color='blue', linestyle='--', linewidth=1.5, label='Non-Sepsis Mean')
-        ax.set_xlabel(col)
-        ax.set_ylabel("Density")
-        ax.legend()
-    for j in range(i+1, len(axes)):
-        fig.delaxes(axes[j])
-    plt.tight_layout()
-    plt.show()
+        
+        sns.kdeplot(sepsis_data, label='Sepsis', shade=True, color='#7393B3', alpha=0.5)
+        sns.kdeplot(non_sepsis_data, label='Non-Sepsis', shade=True, color='#D55E00', alpha=0.5)
+        
+        plt.axvline(sepsis_data.mean(), color='blue', linestyle='--', linewidth=1.5, label='Sepsis Mean')
+        plt.axvline(non_sepsis_data.mean(), color='grey', linestyle='--', linewidth=1.5, label='Non-Sepsis Mean')
+        
+        plt.xlabel(col)
+        plt.ylabel("Density")
+        plt.legend()
+        plt.tight_layout()
+        #plt.show()
+        # filename = os.path.join(output_dir, f"{col}_distribution.png")
+        # plt.savefig(filename)
+        # plt.close() 
+
 
 def plot_percentage_sepsis_grid(df):
     exclude = ['patient_id', 'dataset', 'SepsisLabel', 'Unit1', 'Unit2', 'Gender', 'FiO2']
@@ -218,6 +221,39 @@ def compute_jsd(arr1, arr2, bins=50):
     pmf2, _ = compute_histogram(arr2, bins)
     jsd = jensenshannon(pmf1, pmf2, base=2.0)
     return jsd**2
+
+def compute_kde_density(arr, grid_points=100):
+    # Estimate the density using KDE with Silverman's rule of thumb for bandwidth.
+    kde = gaussian_kde(arr, bw_method='silverman')
+    
+    # Create a grid spanning the range of the data.
+    grid = np.linspace(np.min(arr), np.max(arr), grid_points)
+    
+    # Evaluate the density on the grid.
+    density = kde(grid)
+    
+    # Normalize the density to ensure it integrates to 1.
+    # Use the trapezoidal rule to approximate the integral.
+    density /= np.trapz(density, grid)
+    
+    # Discretize the density over the grid to form a PMF.
+    # Since the grid is uniformly spaced, multiplying by the grid spacing approximates the probability mass.
+    dx = grid[1] - grid[0]
+    pmf = density * dx
+    pmf /= np.sum(pmf)  # Ensure it sums to 1
+    
+    return pmf, grid
+
+def compute_jsd_kde(arr1, arr2, grid_points=100):
+    # Compute KDE-based PMFs for both arrays.
+    pmf1, grid = compute_kde_density(arr1, grid_points)
+    pmf2, _ = compute_kde_density(arr2, grid_points)
+    
+    # Calculate the Jensen-Shannon divergence between the two PMFs.
+    # jensenshannon returns the square root of the divergence.
+    jsd = jensenshannon(pmf1, pmf2, base=2.0)
+    
+    return jsd**2  # Return the squared JSD to match the conventional definition
 
 def compute_kl(arr1, arr2, bins=50):
     pmf1, _ = compute_histogram(arr1, bins)
@@ -370,7 +406,8 @@ def compare_two_datasets(df_A, df_B, bins=50, gamma=1.0,
                 ks_stat, ks_p = ks_2samp(series_A, series_B)
                 res['KS Statistic'] = ks_stat
                 res['Wasserstein Distance'] = wasserstein_distance(series_A, series_B)
-                res['JSD'] = compute_jsd(series_A, series_B, bins=bins)
+                #res['JSD'] = compute_jsd(series_A, series_B, bins=bins)
+                res['JSD'] = compute_jsd_kde(series_A, series_B)
                 res['KL Divergence'] = compute_kl(series_A, series_B, bins=bins)
                 
                 # if KS p-value is high and JSD is low, merge is valid.
