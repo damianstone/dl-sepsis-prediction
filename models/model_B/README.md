@@ -24,7 +24,22 @@ After
 Patient A: [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]  
 Patient B: [[0.7, 0.8, 0.9], [0.0, 0.0, 0.0]]  (extra row added)  
 ```
-* 
+
+### What is happening in this custom dataset?
+1. groups records by patient_id
+- ensures all records from the same patient stay together in batches
+- why? sepsis detection relies on time-series patterns, not individual records
+
+2. creates patient-level labels
+- if any record in a patient’s history has sepsis (1), the entire patient is labeled as positive (1)
+- why? sepsis is a patient-level event, so classification must be per patient
+
+3. pads sequences to the longest in a batch
+- each patient has a different number of records
+- padding ensures batch processing with uniform input shape
+
+4. generates an attention mask
+- 1 = real data, 0 = padding → the transformer ignores padding
 
 ## Metrics
 * AUC-ROC: tells how well your model separates patients with and without sepsis

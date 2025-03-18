@@ -9,6 +9,7 @@ from t_utils import display_balance_statistics
 
 # NOTE: purpose is just to split the data
 
+
 def find_project_root(marker=".gitignore"):
     """
     walk up from the current working directory until a directory containing the
@@ -22,11 +23,9 @@ def find_project_root(marker=".gitignore"):
         f"Project root marker '{marker}' not found starting from {current}")
 
 
-def save_processed_data(root, X_train, X_test, y_train, y_test, file_name):
-    df_train = X_train.copy()
-    df_train["SepsisLabel"] = y_train
-    df_test = X_test.copy()
-    df_test["SepsisLabel"] = y_test
+def save_processed_data(root, train_df, test_df, file_name):
+    df_train = train_df.copy()
+    df_test = test_df.copy()
 
     save_path = f"{root}/dataset/{file_name}.parquet"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -36,15 +35,19 @@ def save_processed_data(root, X_train, X_test, y_train, y_test, file_name):
 
 
 def load_processed_data(root, file_name):
-    df_train = pd.read_parquet(f"{root}/dataset/{file_name}_train.parquet")
-    df_test = pd.read_parquet(f"{root}/dataset/{file_name}_test.parquet")
+    train_df = pd.read_parquet(f"{root}/dataset/{file_name}_train.parquet")
+    test_df = pd.read_parquet(f"{root}/dataset/{file_name}_test.parquet")
 
-    X_train = df_train.drop(columns=["SepsisLabel"])
-    y_train = df_train["SepsisLabel"]
-    X_test = df_test.drop(columns=["SepsisLabel"])
-    y_test = df_test["SepsisLabel"]
+    X_train = train_df.drop(columns=["SepsisLabel", "patient_id"])
+    y_train = train_df["SepsisLabel"]
+    patient_ids_train = train_df["patient_id"]
 
-    return X_train, X_test, y_train, y_test
+    X_test = test_df.drop(columns=["SepsisLabel", "patient_id"])
+    y_test = test_df["SepsisLabel"]
+    patient_ids_test = test_df["patient_id"]
+
+    print("Loaded from last processed data")
+    return X_train, X_test, y_train, y_test, patient_ids_train, patient_ids_test
 
 
 def over_under_sample(df, method="oversample", minority_ratio=0.3):
@@ -150,28 +153,26 @@ def get_post_weight_ratio(train_df):
 
 
 def preprocess_data(
-    data_file_name,
-    sampling=True,
-    use_last_processed_data=False,
-    sampling_method="oversample",
-    sampling_minority_ratio=0.3,
-    train_sample_fraction=0.05, 
-    test_size=0.2, 
-    random_state=42):
-    
+        data_file_name,
+        sampling=True,
+        use_last_processed_data=False,
+        sampling_method="oversample",
+        sampling_minority_ratio=0.3,
+        train_sample_fraction=0.05,
+        test_size=0.2,
+        random_state=42):
+
     project_root = find_project_root()
     print("Project root:", project_root)
     if project_root not in sys.path:
         sys.path.append(project_root)
-    
+
     # TODO: use last processed dataset to avoid running this again
     if use_last_processed_data:
-        X_train, X_test, y_train, y_test = load_processed_data(
+        return load_processed_data(
             root=project_root,
             file_name="small_imputed_sofa",
         )
-        print("Loaded from last processed data")
-        return X_train, X_test, y_train, y_test
 
     # TODO: 1: get the imputed dataset
     df_path = f"{project_root}/dataset/{data_file_name}.parquet"
@@ -183,12 +184,12 @@ def preprocess_data(
     # TODO: 2: split between training and test df
     y = df["SepsisLabel"]
     train_df, test_df = train_test_split(
-        df, 
-        test_size=test_size, 
-        random_state=random_state, 
+        df,
+        test_size=test_size,
+        random_state=random_state,
         stratify=y
     )
-    
+
     # TODO: only sampling for training data
     if sampling:
         train_df = over_under_sample(
@@ -196,7 +197,7 @@ def preprocess_data(
             method=sampling_method,
             minority_ratio=sampling_minority_ratio
         )
-        
+
     # TODO: reduce dataset size
     if train_sample_fraction < 1.0:
         train_df = reduce_dataset(
@@ -204,21 +205,25 @@ def preprocess_data(
             train_sample_fraction=train_sample_fraction
         )
 
-    X_train = train_df.drop(columns=["SepsisLabel"])
-    y_train = train_df["SepsisLabel"]
-    X_test = test_df.drop(columns=["SepsisLabel"])
-    y_test = test_df["SepsisLabel"]
     save_processed_data(
-        project_root, 
-        X_train, 
-        X_test, 
-        y_train, 
-        y_test, 
+        project_root,
+        train_df,
+        test_df,
         file_name="small_imputed_sofa")
     print("Processed data saved")
     
-    return X_train, X_test, y_train, y_test
+    X_train = train_df.drop(columns=["SepsisLabel", "patient_id"])
+    y_train = train_df["SepsisLabel"]
+    patient_ids_train = train_df["patient_id"]
+
+    X_test = test_df.drop(columns=["SepsisLabel", "patient_id"])
+    y_test = test_df["SepsisLabel"]
+    patient_ids_test = test_df["patient_id"]
+
+    return X_train, X_test, y_train, y_test, patient_ids_train, patient_ids_test
+
 
 if __name__ == '__main__':
-    X_train, X_test, y_train, y_test = preprocess_data(use_last_processed_data=False, data_file_name="big_imputed_sofa")
+    X_train, X_test, y_train, y_test, patient_ids_train, patient_ids_test = preprocess_data(
+        use_last_processed_data=False, data_file_name="big_imputed_sofa")
     print(f"Train size: {X_train.shape}, Test size: {X_test.shape}")
