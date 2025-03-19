@@ -13,8 +13,8 @@ timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 output_dir = os.path.join(base_output_dir, timestamp)
 os.makedirs(output_dir, exist_ok=True)
 
-X_train = pd.read_csv("C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/train/X_train.csv")
-X_test = pd.read_csv("C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/test/X_test.csv")
+X_train = pd.read_csv("C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/train/X_train.csv").drop(columns=['patient_id'])  
+X_test = pd.read_csv("C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/test/X_test.csv").drop(columns=['patient_id'])  
 y_train = pd.read_csv("C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/train/y_train.csv")
 y_test = pd.read_csv("C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/test/y_test.csv")
 
