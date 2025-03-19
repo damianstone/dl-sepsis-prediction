@@ -13,22 +13,64 @@
 * useful for irregular data (time series)
 * separately handles static (age, gender) and temporal variables for improved predictions
 
+## Custom dataset
+* padding -> adding extra values (zeros) to make all the sequences the same length, allow consistent shape
+* we can add `masking` to tell the model to ignore padded values and prevent noise 
+```python
+Patient A records: [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]  (Length 2)  
+Patient B records: [[0.7, 0.8, 0.9]]  (Length 1)  
+
+After
+Patient A: [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]  
+Patient B: [[0.7, 0.8, 0.9], [0.0, 0.0, 0.0]]  (extra row added)  
+```
+
+### What is happening in this custom dataset?
+1. groups records by patient_id
+- ensures all records from the same patient stay together in batches
+- why? sepsis detection relies on time-series patterns, not individual records
+
+2. creates patient-level labels
+- if any record in a patient’s history has sepsis (1), the entire patient is labeled as positive (1)
+- why? sepsis is a patient-level event, so classification must be per patient
+
+3. pads sequences to the longest in a batch
+- each patient has a different number of records
+- padding ensures batch processing with uniform input shape
+
+4. generates an attention mask
+- 1 = real data, 0 = padding → the transformer ignores padding
+
 ## Metrics
 * AUC-ROC: tells how well your model separates patients with and without sepsis
 * precision, Recall, F1: tell how many sepsis cases your model finds correctly and incorrectly
 * ROC curve: shows clearly if your model makes few or many false alarms.
 * precision-recall curve: Shows if your model misses many real sepsis cases
-* confusion matrix: shows exactly which mistakes your model made
 * attention heatmaps: shows which patient features matter most
 
 ## After training 
 * which variables are more important
 * how long before it detects sepsis
-* how influencial are the least of sequences 
+* how influencial are the least of sequences
 
-## Speed up predictions
-* move model & data to GPU
-* use mini-batch inference
-* enable JIT compilation
-* use float16 precision
-* optimize pytorch backend (cudnn.benchmark)
+## Small dataset creation ideas
+* only 1.80% positive sepsis -> possible data imbalance for models
+* simple 50/50 sampling (for now)
+* stratified sampling, get x amount of positives and x amount of negatives form the big dataset
+
+### 01_simple_transformer evaluation
+* trained with the original dataset (imputed_sofa) 80/20
+* epochs = 100
+* precision 98% because most of the data were true negatives 
+#### Covariance matrix
+* high TN -> correctly classifies non-sepsis 
+* high FN -> not predicting correctly for sepsis patients 
+
+#### Precision - recall
+* precision drops as recall increases, meaning that capturing more positives leads to more false positives due to dataset imbalance
+
+### 03_simple_transformer evaluation
+* trained with X_train, y_train as balance dataset 80/20
+* tested with X_test, y_test as unbalance (original) dataset
+* 100 epochs
+* 77.69% acc on test data

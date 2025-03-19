@@ -1,0 +1,34 @@
+{
+    "AUC": 0.7531,
+    "Best Threshold": 0.8833,
+    "Precision at Best Threshold": 0.1734,
+    "Recall at Best Threshold": 0.2431,
+    "F1 Score": 0.1454,
+    "Classification Report": {
+        "0": {
+            "precision": 0.9892251815980629,
+            "recall": 0.9112898464203006,
+            "f1-score": 0.948659548094752,
+            "support": 304858.0
+        },
+        "1": {
+            "precision": 0.08638221681699942,
+            "recall": 0.45799749238760523,
+            "f1-score": 0.14535015916325603,
+            "support": 5583.0
+        },
+        "accuracy": 0.9031377942990778,
+        "macro avg": {
+            "precision": 0.5378036992075312,
+            "recall": 0.6846436694039529,
+            "f1-score": 0.547004853629004,
+            "support": 310441.0
+        },
+        "weighted avg": {
+            "precision": 0.9729883692170542,
+            "recall": 0.9031377942990778,
+            "f1-score": 0.9342127568577552,
+            "support": 310441.0
+        }
+    }
+}
