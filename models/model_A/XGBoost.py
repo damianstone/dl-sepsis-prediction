@@ -1,24 +1,22 @@
 import pandas as pd
 import numpy as np
 import xgboost as xgb
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 import matplotlib.pyplot as plt
-import seaborn as sns
 import os
 from datetime import datetime
-import joblib
-import graphviz
 
-# Output directory with timestamp
+
+
 base_output_dir = r'C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/result'
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 output_dir = os.path.join(base_output_dir, timestamp)
 os.makedirs(output_dir, exist_ok=True)
 
-# Load data
-data_path = r'C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/filtered_data.csv'
-df = pd.read_csv(data_path)
+X_train = pd.read_csv("C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/train/X_train.csv")
+X_test = pd.read_csv("C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/test/X_test.csv")
+y_train = pd.read_csv("C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/train/y_train.csv")
+y_test = pd.read_csv("C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/test/y_test.csv")
 
 # SOFA calculation based on Sepsis-3
 def calculate_sofa(row):
@@ -49,21 +47,17 @@ def calculate_sofa(row):
 
     return sofa
 
-df['SOFA'] = df.apply(calculate_sofa, axis=1)
+X_train['SOFA'] = X_train.apply(calculate_sofa, axis=1)
+X_test['SOFA'] = X_test.apply(calculate_sofa, axis=1)
 
-# Train using all available time steps but predict only the final time step
-X = df.drop(columns=['SepsisLabel', 'patient_id'])
-y = df['SepsisLabel']
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
 
 scale_pos_weight = len(y_train[y_train == 0]) / len(y_train[y_train == 1])
 
 params = {
     'objective': 'binary:logistic',
     'learning_rate': 0.1,
-    'max_depth': 10,
-    'n_estimators': 100,
+    'max_depth': 20,
+    'n_estimators': 500,
     'subsample': 0.8,
     'colsample_bytree': 0.8,
     'random_state': 0,
@@ -71,29 +65,20 @@ params = {
     'scale_pos_weight': scale_pos_weight
 }
 
-model = xgb.XGBClassifier(**params)
-# Train model with early stopping
-model.fit(X_train,y_train,)
 
+model = xgb.XGBClassifier(**params)
+model.fit(X_train, y_train)
 
 y_pred = model.predict(X_test)
 
-# Evaluate model
 accuracy = accuracy_score(y_test, y_pred)
 report = classification_report(y_test, y_pred, output_dict=True)
 print("Accuracy:", accuracy)
 print(classification_report(y_test, y_pred))
 
-# Save results in unique directory
-timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-output_dir = os.path.join(base_output_dir, timestamp)
-os.makedirs(output_dir, exist_ok=True)
-
-# Save classification report to CSV
 report_df = pd.DataFrame(report).transpose()
 report_df.to_csv(os.path.join(output_dir, 'classification_report.csv'), index=True)
 
-# Feature importance
 plt.figure(figsize=(10, 7))
 xgb.plot_importance(model, max_num_features=15)
 plt.title('Top 15 Feature Importance')
@@ -101,31 +86,6 @@ plt.tight_layout()
 plt.savefig(f"{output_dir}/feature_importance.png", dpi=300)
 plt.close()
 
-# Get the decision tree rules in text format
-booster = model.get_booster()
-dot_data = booster.get_dump(with_stats=True, dump_format='dot')[0]
-# Convert text-based rules into a visualization
-graph = graphviz.Source(dot_data)
-# Save the enhanced tree visualization
-tree_output_path = f"{output_dir}/tree_0_full.svg" 
-graph.render(filename=tree_output_path,format='svg',engine='dot',cleanup=True)
-print(f"Tree visualization saved at: {tree_output_path}")
 
 
-# Decision rules CSV
-tree_df = model.get_booster().trees_to_dataframe()
-tree_df.query('Tree==0').to_csv(f"{output_dir}/tree_0_decision_rules.csv", index=False)
-
-# Save trained model
-model_path = os.path.join(output_dir, 'xgboost_model.pkl')
-joblib.dump(model, model_path)
-
-# Generate predictions using full time series but only store the latest for each patient
-df['Sepsis_Probability'] = model.predict_proba(X)[:, 1]
-df_latest_predictions = df.sort_values(['patient_id', 'ICULOS']).groupby('patient_id').last().reset_index()
-
-# Save final patient-level predictions
-prediction_output_path = os.path.join(output_dir, 'patient_predictions.csv')
-df_latest_predictions[['patient_id', 'ICULOS', 'Sepsis_Probability']].to_csv(prediction_output_path, index=False)
-
-print(f"Final predictions saved at: {prediction_output_path}")
+print(f"finish")
