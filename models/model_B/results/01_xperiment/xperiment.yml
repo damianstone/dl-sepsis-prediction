@@ -1,0 +1,25 @@
+data:
+  data_file_name: big_imputed_sofa
+  random_state: 42
+  sampling: true
+  sampling_method: undersample
+  sampling_minority_ratio: 0.3
+  test_size: 0.2
+  train_sample_fraction: 0.02
+  use_last_processed_data: false
+model:
+  drop_out: 0.1
+  input_dimention: 39
+  num_layers: 3
+  number_attention_heads: 39
+testing:
+  batch_size: 32
+  best_threshold: 0.30000001192092896
+training:
+  batch_size: 32
+  epochs: 10
+  lr: 0.001
+  threshold_update_n_batches: 3
+  use_post_weight: false
+xperiment:
+  name: 01_xperiment

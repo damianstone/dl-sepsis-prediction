@@ -16,7 +16,7 @@ def testing_loop(model, test_loader, loss_fn, device, threshold=0.3):
     with torch.inference_mode():
         progress_bar = tqdm(test_loader, desc="Testing", leave=False)
         
-        for X_batch, y_batch, attention_mask in test_loader:
+        for X_batch, y_batch, attention_mask in progress_bar:
             X_batch, y_batch, attention_mask = (
                 X_batch.to(device),
                 y_batch.to(device),

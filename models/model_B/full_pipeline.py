@@ -5,6 +5,7 @@ import torch
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import yaml
 from torch import nn
 from pathlib import Path
 from torch.utils.data import DataLoader
@@ -12,6 +13,12 @@ from torch.utils.data import DataLoader
 from preprocess import preprocess_data
 from custom_dataset import SepsisPatientDataset, collate_fn
 from architectures import TransformerClassifier
+from training import training_loop
+from testing import testing_loop
+from model_utils.metrics import save_metrics
+from model_utils.plots import save_plots
+from model_utils.helper_functions import save_xperiment_csv, save_xperiment_yaml
+
 
 def find_project_root(marker=".gitignore"):
     """
@@ -25,59 +32,195 @@ def find_project_root(marker=".gitignore"):
     raise FileNotFoundError(
         f"Project root marker '{marker}' not found starting from {current}")
 
-def get_config():
-  pass
 
-def save_model():
-  pass
+def get_config(root, name_file):
+    config_path = f"{root}/models/model_B/config/{name_file}"
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError(f"Config file does not exist: {config_path}")
+    with open(config_path, 'r') as file:
+        config = yaml.safe_load(file)
+    return config
 
-def load_model():
-  pass
+
+def save_model(xperiment_name, model):
+    model_path = Path('./saved')
+    model_path.mkdir(exist_ok=True)
+    model_file = model_path / f"{xperiment_name}.pth"
+    torch.save(model.state_dict(), model_file)
+
+
+def get_pos_weight(y):
+    y = np.array(y)
+    positive = y.sum()
+    negative = len(y) - positive
+    if positive == 0:
+        raise ValueError("No positive samples found in labels.")
+    return torch.tensor([negative / positive], dtype=torch.float32)
+
+
+def data_plots_and_metrics(
+    root,
+    config,
+    all_y_logits,
+    all_y_probs,
+    all_y_pred,
+    all_y_test,
+    epoch_counter,
+    loss_counter,
+    acc_counter,
+    model,
+    feature_names
+):
+    xperiment_name = config["xperiment"]["name"]
+    all_y_logits = torch.cat(all_y_logits).numpy().flatten()
+    all_y_probs = torch.cat(all_y_probs).numpy().flatten()
+    all_y_pred = torch.cat(all_y_pred).numpy().flatten()
+    all_y_test = torch.cat(all_y_test).numpy().astype(int)
+
+    df = pd.DataFrame({
+        'y_logits': all_y_logits,
+        'y_probs': all_y_probs,
+        'y_pred': all_y_pred,
+        'y_test': all_y_test
+    })
+    try:
+        save_xperiment_csv(root, xperiment_name, df)
+    except:
+        raise "error"
+    
+    try:
+        save_xperiment_yaml(root, config)
+    except:
+        raise "error"
+
+    accuracy = (df['y_pred'] == df['y_test']).mean() * 100
+    y_test = df['y_test'].values
+    y_probs = df['y_probs'].values
+    y_pred = df['y_pred'].values
+
+    try:
+        save_metrics(root, xperiment_name, accuracy, y_test, y_probs,
+                     y_pred, config["testing"]["best_threshold"])
+    except:
+        raise "error"
+
+    try:
+        save_plots(root, xperiment_name, loss_counter, y_test,
+                   y_probs, y_pred, model, feature_names)
+    except:
+        raise "error"
+
 
 def full_pipeline():
-  # TODO: get args: config_name_file
-  
-  
-  # TODO: get config and set up device
-  config = get_config()
-  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-  
-  # TODO: dataset
-  X_train, X_test, y_train, y_test, patient_ids_train, patient_ids_test = preprocess_data(
-      use_last_processed_data=True,
-      data_file_name="big_imputed_sofa",
-      train_sample_fraction=0.02
-  )
+    project_root = find_project_root()
+    if project_root not in sys.path:
+        sys.path.append(project_root)
 
-  batch_size = 32
-  dataset = SepsisPatientDataset(X_train.values, y_train.values, patient_ids_train.values)
-  train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
+    # NOTE: get args: config_name_file
+    if len(sys.argv) < 2:
+        print("Usage: python full_pipeline.py <config_name_file>")
+        sys.exit(1)
+    config_name_file = sys.argv[1]
+    config = get_config(project_root, config_name_file)
 
-  # TODO: model, loss function and optimizer
-  in_dim = X_train.shape[1] 
-  valid_heads = [h for h in range(1, in_dim + 1) if in_dim % h == 0]
-  num_heads = valid_heads[-1] 
-  print(num_heads)
-  model = TransformerClassifier(input_dim=in_dim, num_heads=num_heads).to(device)
-  # TODO: get pos_weight
-  pos_weight = torch.tensor([2.3], dtype=torch.float32).to(device)
-  loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-  optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
+    # NOTE: set up device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-  # TODO: training loop
-  
-  # TODO: save the model creating a number ID which should i + 1 from the last previously saved
-  
-  # TODO: standarize all metric values from training loop and save them
-  
-  # TODO: load the last model for testing loop or can i used the just trained model?
-  
-  # TODO: testing loop
-  
-  # TODO: standarize all metric values from testing loop and save them
-  
-  # TODO: plot and save graphs
+    # NOTE: dataset
+    data_config = config["data"]
+    X_train, X_test, y_train, y_test, patient_ids_train, patient_ids_test = preprocess_data(
+        **data_config)
+
+    batch_size = config["training"]["batch_size"]
+    dataset = SepsisPatientDataset(
+        X_train.values,
+        y_train.values,
+        patient_ids_train.values
+    )
+    train_loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn
+    )
+
+    # NOTE: model, loss function and optimizer
+    in_dim = X_train.shape[1]
+    valid_heads = [h for h in range(1, in_dim + 1) if in_dim % h == 0]
+    even_valid_heads = [h for h in valid_heads if h % 2 == 0]
+    num_heads = even_valid_heads[-1] if even_valid_heads else valid_heads[-1]
+    config["model"]["input_dimention"] = in_dim
+    config["model"]["number_attention_heads"] = num_heads
+
+    model = TransformerClassifier(
+        input_dim=in_dim,
+        num_heads=num_heads,
+        drop_out=config["model"]["drop_out"],
+        num_layers=config["model"]["num_layers"]).to(device)
+
+    # NOTE: get pos_weight
+    if config["training"]["use_post_weight"]:
+        pos_weight = get_pos_weight(y_train.values)
+        config["training"]["post_weight"] = pos_weight
+        loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    else:
+        loss_fn = nn.BCEWithLogitsLoss()
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config["training"]["lr"])
+
+    # NOTE: training loop
+    epoch_counter, loss_counter, acc_counter, best_threshold = training_loop(
+        model=model,
+        train_loader=train_loader,
+        optimizer=optimizer,
+        loss_fn=loss_fn,
+        epochs=config["training"]["epochs"],
+        device=device,
+        threshold_update_n_batches=config["training"]["threshold_update_n_batches"],
+    )
+
+    # TODO: save the model using the name in config
+    save_model(config["xperiment"]["name"], model)
+
+    # NOTE: test data and testing loop
+    batch_size = config["testing"]["batch_size"]
+    dataset = SepsisPatientDataset(
+        X_test.values,
+        y_test.values,
+        patient_ids_test.values
+    )
+    test_loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn
+    )
+
+    config["testing"]["best_threshold"] = best_threshold
+    all_y_logits, all_y_probs, all_y_pred, all_y_test = testing_loop(
+        model=model,
+        test_loader=test_loader,
+        loss_fn=loss_fn,
+        device=device,
+        threshold=best_threshold  # from the training loop
+    )
+    try:
+      data_plots_and_metrics(
+          project_root,
+          config,
+          all_y_logits,
+          all_y_probs,
+          all_y_pred,
+          all_y_test,
+          epoch_counter,
+          loss_counter,
+          acc_counter,
+          model,
+          feature_names=X_train.columns.tolist()
+      )
+    except:
+      raise "error saving data"
 
 
 if __name__ == '__main__':
-    print("not implemented yet")
+    full_pipeline()

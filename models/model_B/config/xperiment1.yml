@@ -2,21 +2,25 @@ xperiment:
   name: "01_xperiment"
 
 data:
-  file_name: "big_imputed_sofa"
+  data_file_name: "big_imputed_sofa"
+  use_last_processed_data: False
+  sampling: True
+  sampling_method: "undersample"
+  sampling_minority_ratio: 0.3
   train_sample_fraction: 0.02
   test_size: 0.2
-  sampling_method: "oversample"
-  sampling_minority_ratio: 0.3
+  random_state: 42
 
 model:
-  input_dim: 39
-  num_heads: 3
-  num_layers: 2
+  num_layers: 3
+  drop_out: 0.1
 
 training:
-  epochs: 100
   batch_size: 32
-  learning_rate: 0.001
-  pos_weight: 2.3
-  threshold_update_batches: 10
-  use_best_threshold: true
+  use_post_weight: False
+  lr: 0.001
+  epochs: 10
+  threshold_update_n_batches: 10 # leave as same number of epochs to never update it and leave it in 0.5
+
+testing:
+  batch_size: 32

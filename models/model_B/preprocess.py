@@ -148,7 +148,6 @@ def get_post_weight_ratio(train_df):
     positive_count = (patient_summary["SepsisLabel"] == 1).sum()
     if positive_count == 0:
         raise ValueError("No positive samples found in training set.")
-    print("Negative-to-positive ratio (per patient):", negative_count / positive_count)
     return round(negative_count / positive_count)
 
 
