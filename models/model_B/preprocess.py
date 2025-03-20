@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from pathlib import Path
 from sklearn.utils import resample
-from t_utils import display_balance_statistics
+from model_utils.helper_functions import display_balance_statistics
 
 # NOTE: purpose is just to split the data
 

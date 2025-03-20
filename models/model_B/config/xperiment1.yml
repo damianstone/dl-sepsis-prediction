@@ -1,0 +1,22 @@
+xperiment:
+  name: "01_xperiment"
+
+data:
+  file_name: "big_imputed_sofa"
+  train_sample_fraction: 0.02
+  test_size: 0.2
+  sampling_method: "oversample"
+  sampling_minority_ratio: 0.3
+
+model:
+  input_dim: 39
+  num_heads: 3
+  num_layers: 2
+
+training:
+  epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  pos_weight: 2.3
+  threshold_update_batches: 10
+  use_best_threshold: true
