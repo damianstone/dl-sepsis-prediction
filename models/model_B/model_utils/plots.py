@@ -76,8 +76,7 @@ def save_plots(
   y_probs, 
   y_pred, 
   model, 
-  feature_names, 
-  attention_weights):
+  feature_names):
     save_path = f"{root}/models/model_B/results/{xperiment_name}"
     os.makedirs(save_path, exist_ok=True)
 

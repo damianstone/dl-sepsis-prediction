@@ -18,11 +18,11 @@ def save_metrics(
     save_path = f"{root}/models/model_B/results/{xperiment_name}"
     os.makedirs(save_path, exist_ok=True)
     
-    precision = precision_score(y_test, y_pred)
-    recall = recall_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, zero_division=0)
+    recall = recall_score(y_test, y_pred, zero_division=0)
     auc_score = roc_auc_score(y_test, y_probs)
-    f1 = f1_score(y_test, y_pred)
-    report = classification_report(y_test, y_pred, output_dict=True)
+    f1 = f1_score(y_test, y_pred, zero_division=0)
+    report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
 
     metrics = {
         "accuracy": round(float(accuracy), 3),
