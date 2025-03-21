@@ -48,18 +48,16 @@ def save_model(xperiment_name, model):
     model_file = model_path / f"{xperiment_name}.pth"
     torch.save(model.state_dict(), model_file)
 
-# TODO: fix
-
 
 def get_pos_weight(ids, y, max_weight=5):
     train_df = pd.DataFrame({"patient_id": ids, "SepsisLabel": y})
     patient_summary = train_df.groupby("patient_id")["SepsisLabel"].max().reset_index()
     negative_count = (patient_summary["SepsisLabel"] == 0).sum()
     positive_count = (patient_summary["SepsisLabel"] == 1).sum()
-    
+
     if positive_count == 0:
         raise ValueError("No positive samples found in training set.")
-    
+
     weight = round(negative_count / positive_count, 2)
     p_w = min(weight, max_weight)
     return weight, torch.tensor([p_w], dtype=torch.float32)
@@ -129,17 +127,38 @@ def full_pipeline():
     # NOTE: dataset
     data_config = config["data"]
     # TODO: add evaluation loop
-    X_train, X_test, y_train, y_test, patient_ids_train, patient_ids_test = preprocess_data(
-        **data_config)
+    data_splits = preprocess_data(**data_config)
+    X_train = data_splits["X_train"]
+    y_train = data_splits["y_train"]
+    patient_ids_train = data_splits["patient_ids_train"]
 
+    X_val = data_splits["X_val"]
+    y_val = data_splits["y_val"]
+    patient_ids_val = data_splits["patient_ids_val"]
+
+    X_test = data_splits["X_test"]
+    y_test = data_splits["y_test"]
+    patient_ids_test = data_splits["patient_ids_test"]
+    
     batch_size = config["training"]["batch_size"]
-    dataset = SepsisPatientDataset(
+    train_dataset = SepsisPatientDataset(
         X_train.values,
         y_train.values,
         patient_ids_train.values
     )
     train_loader = DataLoader(
-        dataset,
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn
+    )
+    val_dataset = SepsisPatientDataset(
+        X_val.values,
+        y_val.values,
+        patient_ids_val.values
+    )
+    val_loader = DataLoader(
+        val_dataset,
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn
@@ -175,6 +194,7 @@ def full_pipeline():
     epoch_counter, loss_counter, acc_counter, best_threshold = training_loop(
         model=model,
         train_loader=train_loader,
+        val_loader=val_loader,
         optimizer=optimizer,
         loss_fn=loss_fn,
         epochs=config["training"]["epochs"],
