@@ -60,7 +60,7 @@ def training_loop(model, train_loader, optimizer, loss_fn, epochs, device, thres
             optimizer.step()
 
             # adjust threshold every N batches
-            if batch_count % N == 0:
+            if N > 0 and batch_count % N == 0:
                 new_threshold = float(adjust_threshold(y_probs, y_batch, t_precision, t_recall))
                 new_f1 = float(2 * (prec * rec) / (prec + rec + 1e-8))
 
@@ -92,7 +92,6 @@ def training_loop(model, train_loader, optimizer, loss_fn, epochs, device, thres
             
         print(f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc:.2f}% | Precision: {epoch_prec:.2f}% | Recall: {epoch_rec:.2f}%")
 
-    # TODO: how to return the best threshold
     return epoch_counter, loss_counter, acc_counter, best_threshold
 
 # ---------------------- Main Execution ----------------------

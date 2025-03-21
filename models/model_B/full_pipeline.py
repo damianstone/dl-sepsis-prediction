@@ -48,14 +48,21 @@ def save_model(xperiment_name, model):
     model_file = model_path / f"{xperiment_name}.pth"
     torch.save(model.state_dict(), model_file)
 
+# TODO: fix
 
-def get_pos_weight(y):
-    y = np.array(y)
-    positive = y.sum()
-    negative = len(y) - positive
-    if positive == 0:
-        raise ValueError("No positive samples found in labels.")
-    return torch.tensor([negative / positive], dtype=torch.float32)
+
+def get_pos_weight(ids, y, max_weight=5):
+    train_df = pd.DataFrame({"patient_id": ids, "SepsisLabel": y})
+    patient_summary = train_df.groupby("patient_id")["SepsisLabel"].max().reset_index()
+    negative_count = (patient_summary["SepsisLabel"] == 0).sum()
+    positive_count = (patient_summary["SepsisLabel"] == 1).sum()
+    
+    if positive_count == 0:
+        raise ValueError("No positive samples found in training set.")
+    
+    weight = round(negative_count / positive_count, 2)
+    p_w = min(weight, max_weight)
+    return weight, torch.tensor([p_w], dtype=torch.float32)
 
 
 def data_plots_and_metrics(
@@ -76,58 +83,52 @@ def data_plots_and_metrics(
     all_y_probs = torch.cat(all_y_probs).numpy().flatten()
     all_y_pred = torch.cat(all_y_pred).numpy().flatten()
     all_y_test = torch.cat(all_y_test).numpy().astype(int)
-
     df = pd.DataFrame({
         'y_logits': all_y_logits,
         'y_probs': all_y_probs,
         'y_pred': all_y_pred,
         'y_test': all_y_test
     })
-    try:
-        save_xperiment_csv(root, xperiment_name, df)
-    except:
-        raise "error"
-    
-    try:
-        save_xperiment_yaml(root, config)
-    except:
-        raise "error"
-
-    accuracy = (df['y_pred'] == df['y_test']).mean() * 100
     y_test = df['y_test'].values
     y_probs = df['y_probs'].values
     y_pred = df['y_pred'].values
+    try:
+        save_xperiment_csv(root, xperiment_name, df)
+    except Exception as e:
+        raise RuntimeError("Failed to save experiment CSV") from e
 
     try:
-        save_metrics(root, xperiment_name, accuracy, y_test, y_probs,
+        save_xperiment_yaml(root, config)
+    except Exception as e:
+        raise RuntimeError("Failed to save experiment config") from e
+
+    try:
+        save_metrics(root, xperiment_name, y_test, y_probs,
                      y_pred, config["testing"]["best_threshold"])
-    except:
-        raise "error"
+    except Exception as e:
+        raise RuntimeError("Failed to save metrics") from e
 
     try:
         save_plots(root, xperiment_name, loss_counter, y_test,
                    y_probs, y_pred, model, feature_names)
-    except:
-        raise "error"
+    except Exception as e:
+        raise RuntimeError("Failed to save plots") from e
 
 
 def full_pipeline():
     project_root = find_project_root()
     if project_root not in sys.path:
         sys.path.append(project_root)
-
-    # NOTE: get args: config_name_file
     if len(sys.argv) < 2:
         print("Usage: python full_pipeline.py <config_name_file>")
         sys.exit(1)
     config_name_file = sys.argv[1]
     config = get_config(project_root, config_name_file)
-
-    # NOTE: set up device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # NOTE: dataset
     data_config = config["data"]
+    # TODO: add evaluation loop
     X_train, X_test, y_train, y_test, patient_ids_train, patient_ids_test = preprocess_data(
         **data_config)
 
@@ -158,10 +159,12 @@ def full_pipeline():
         drop_out=config["model"]["drop_out"],
         num_layers=config["model"]["num_layers"]).to(device)
 
-    # NOTE: get pos_weight
+    # NOTE: get pos_weight to balance the loss for imbalanced classes
     if config["training"]["use_post_weight"]:
-        pos_weight = get_pos_weight(y_train.values)
-        config["training"]["post_weight"] = pos_weight
+        max_p = config["training"]["max_post_weight"]
+        weight, pos_weight = get_pos_weight(patient_ids_train, y_train.values, max_p)
+        config["training"]["weight"] = float(weight)
+        config["training"]["post_weight"] = float(pos_weight)
         loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     else:
         loss_fn = nn.BCEWithLogitsLoss()
@@ -178,8 +181,6 @@ def full_pipeline():
         device=device,
         threshold_update_n_batches=config["training"]["threshold_update_n_batches"],
     )
-
-    # TODO: save the model using the name in config
     save_model(config["xperiment"]["name"], model)
 
     # NOTE: test data and testing loop
@@ -204,22 +205,20 @@ def full_pipeline():
         device=device,
         threshold=best_threshold  # from the training loop
     )
-    try:
-      data_plots_and_metrics(
-          project_root,
-          config,
-          all_y_logits,
-          all_y_probs,
-          all_y_pred,
-          all_y_test,
-          epoch_counter,
-          loss_counter,
-          acc_counter,
-          model,
-          feature_names=X_train.columns.tolist()
-      )
-    except:
-      raise "error saving data"
+
+    data_plots_and_metrics(
+        project_root,
+        config,
+        all_y_logits,
+        all_y_probs,
+        all_y_pred,
+        all_y_test,
+        epoch_counter,
+        loss_counter,
+        acc_counter,
+        model,
+        feature_names=X_train.columns.tolist()
+    )
 
 
 if __name__ == '__main__':

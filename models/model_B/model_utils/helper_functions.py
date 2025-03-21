@@ -25,10 +25,16 @@ def save_xperiment_csv(root, xperiment_name, df):
 def save_xperiment_yaml(root, config):
     xperiment_name = config["xperiment"]["name"]
     save_path = f"{root}/models/model_B/results/{xperiment_name}/xperiment.yml"
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)  # Ensure directory exists
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     with open(save_path, "w") as file:
-        yaml.dump(config, file, default_flow_style=False)
-
+        yaml.dump(
+            config,
+            file,
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+            width=70,
+        )
 
 def display_balance_statistics(df):
     patient_df = df.groupby("patient_id")["SepsisLabel"].max().reset_index()
