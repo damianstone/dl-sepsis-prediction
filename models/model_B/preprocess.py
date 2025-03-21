@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from pathlib import Path
 from sklearn.utils import resample
-from t_utils import display_balance_statistics
+from model_utils.helper_functions import display_balance_statistics
 
 # NOTE: purpose is just to split the data
 
@@ -148,7 +148,6 @@ def get_post_weight_ratio(train_df):
     positive_count = (patient_summary["SepsisLabel"] == 1).sum()
     if positive_count == 0:
         raise ValueError("No positive samples found in training set.")
-    print("Negative-to-positive ratio (per patient):", negative_count / positive_count)
     return round(negative_count / positive_count)
 
 
