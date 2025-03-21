@@ -1,9 +1,9 @@
 xperiment:
-  name: "01_encoder_transformer"
+  name: "02_encoder_transformer"
 
 data:
   data_file_name: "big_imputed_sofa"
-  use_last_processed_data: False
+  use_last_processed_data: True
   sampling: True
   sampling_method: "undersample"
   sampling_minority_ratio: 0.4
@@ -18,7 +18,7 @@ model:
 training:
   batch_size: 32
   use_post_weight: True
-  max_post_weight: 1.5
+  max_post_weight: 5
   lr: 0.001
   epochs: 50
   threshold_update_n_batches: -1

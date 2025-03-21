@@ -161,10 +161,8 @@ def full_pipeline():
 
     # NOTE: get pos_weight to balance the loss for imbalanced classes
     if config["training"]["use_post_weight"]:
-        weight, pos_weight = get_pos_weight(
-            patient_ids_train, y_train.values, config["training"]["max_post_weight"])
-        weight, pos_weight = get_pos_weight(
-            y_train.values, config["training"]["max_post_weight"])
+        max_p = config["training"]["max_post_weight"]
+        weight, pos_weight = get_pos_weight(patient_ids_train, y_train.values, max_p)
         config["training"]["weight"] = float(weight)
         config["training"]["post_weight"] = float(pos_weight)
         loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
