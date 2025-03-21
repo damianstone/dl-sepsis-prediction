@@ -92,7 +92,6 @@ def training_loop(model, train_loader, optimizer, loss_fn, epochs, device, thres
             
         print(f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc:.2f}% | Precision: {epoch_prec:.2f}% | Recall: {epoch_rec:.2f}%")
 
-    # TODO: how to return the best threshold
     return epoch_counter, loss_counter, acc_counter, best_threshold
 
 # ---------------------- Main Execution ----------------------

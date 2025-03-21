@@ -48,14 +48,19 @@ def save_model(xperiment_name, model):
     model_file = model_path / f"{xperiment_name}.pth"
     torch.save(model.state_dict(), model_file)
 
+# TODO: fix
 
-def get_pos_weight(y, max_weight=5):
-    y = np.array(y)
-    positive = y.sum()
-    negative = len(y) - positive
-    if positive == 0:
-        raise ValueError("No positive samples found in labels.")
-    weight = round(float(negative / positive), 2)
+
+def get_pos_weight(ids, y, max_weight=5):
+    train_df = pd.DataFrame({"patient_id": ids, "SepsisLabel": y})
+    patient_summary = train_df.groupby("patient_id")["SepsisLabel"].max().reset_index()
+    negative_count = (patient_summary["SepsisLabel"] == 0).sum()
+    positive_count = (patient_summary["SepsisLabel"] == 1).sum()
+    
+    if positive_count == 0:
+        raise ValueError("No positive samples found in training set.")
+    
+    weight = round(negative_count / positive_count, 2)
     p_w = min(weight, max_weight)
     return weight, torch.tensor([p_w], dtype=torch.float32)
 
@@ -114,15 +119,11 @@ def full_pipeline():
     project_root = find_project_root()
     if project_root not in sys.path:
         sys.path.append(project_root)
-
-    # NOTE: get args: config_name_file
     if len(sys.argv) < 2:
         print("Usage: python full_pipeline.py <config_name_file>")
         sys.exit(1)
     config_name_file = sys.argv[1]
     config = get_config(project_root, config_name_file)
-
-    # NOTE: set up device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # NOTE: dataset
@@ -160,7 +161,10 @@ def full_pipeline():
 
     # NOTE: get pos_weight to balance the loss for imbalanced classes
     if config["training"]["use_post_weight"]:
-        weight, pos_weight = get_pos_weight(y_train.values, config["training"]["max_post_weight"])
+        weight, pos_weight = get_pos_weight(
+            patient_ids_train, y_train.values, config["training"]["max_post_weight"])
+        weight, pos_weight = get_pos_weight(
+            y_train.values, config["training"]["max_post_weight"])
         config["training"]["weight"] = float(weight)
         config["training"]["post_weight"] = float(pos_weight)
         loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
