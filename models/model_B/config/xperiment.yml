@@ -1,9 +1,9 @@
 xperiment:
-  name: "01_xperiment"
+  name: "01_encoder_transformer"
 
 data:
   data_file_name: "big_imputed_sofa"
-  use_last_processed_data: False
+  use_last_processed_data: True
   sampling: True
   sampling_method: "undersample"
   sampling_minority_ratio: 0.3
@@ -12,15 +12,16 @@ data:
   random_state: 42
 
 model:
-  num_layers: 3
+  num_layers: 2
   drop_out: 0.1
 
 training:
   batch_size: 32
   use_post_weight: True
+  max_post_weight: 5
   lr: 0.001
-  epochs: 10
-  threshold_update_n_batches: 10 # leave as same number of epochs to never update it and leave it in 0.5
+  epochs: 50
+  threshold_update_n_batches: 51 # leave as same number of epochs to never update it and leave it in 0.5
 
 testing:
   batch_size: 32

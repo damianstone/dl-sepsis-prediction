@@ -4,29 +4,31 @@ import pandas as pd
 import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import precision_score, roc_auc_score, f1_score, classification_report, recall_score
+import sklearn.metrics as m
 
 
 def save_metrics(
-    root,
-    xperiment_name,
-    accuracy,
-    y_test,
-    y_probs,
-    y_pred,
-    best_threshold):
+        root,
+        xperiment_name,
+        y_test,
+        y_probs,
+        y_pred,
+        best_threshold):
     save_path = f"{root}/models/model_B/results/{xperiment_name}"
     os.makedirs(save_path, exist_ok=True)
-    
-    precision = precision_score(y_test, y_pred, zero_division=0)
-    recall = recall_score(y_test, y_pred, zero_division=0)
-    auc_score = roc_auc_score(y_test, y_probs)
-    f1 = f1_score(y_test, y_pred, zero_division=0)
-    report = classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+
+    accuracy = m.accuracy_score(y_test, y_pred)
+    balanced_accuracy = m.balanced_accuracy_score(y_test, y_pred)
+    precision = m.precision_score(y_test, y_pred, average='weighted', zero_division=0)
+    recall = m.recall_score(y_test, y_pred, average='weighted', zero_division=0)
+    auc_score = m.roc_auc_score(y_test, y_probs)
+    f1 = m.f1_score(y_test, y_pred, average='weighted', zero_division=0)
+    report = m.classification_report(y_test, y_pred, output_dict=True, zero_division=0)
 
     metrics = {
-        "accuracy": round(float(accuracy), 3),
-        "best_threshold": best_threshold,
+        "balanced_accuracy": round(float(accuracy), 3),
+        "accuracy": round(float(balanced_accuracy), 3),
+        "best_threshold": round(float(best_threshold), 3),
         "AUC": round(float(auc_score), 3),
         "precision": round(float(precision), 3),
         "recall": round(float(recall), 3),

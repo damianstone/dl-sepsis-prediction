@@ -166,21 +166,18 @@ def preprocess_data(
     if project_root not in sys.path:
         sys.path.append(project_root)
 
-    # TODO: use last processed dataset to avoid running this again
     if use_last_processed_data:
         return load_processed_data(
             root=project_root,
             file_name="small_imputed_sofa",
         )
 
-    # TODO: 1: get the imputed dataset
     df_path = f"{project_root}/dataset/{data_file_name}.parquet"
     try:
         df = pd.read_parquet(df_path)
     except Exception as e:
         sys.exit(f"Error loading dataset from {df_path}: {e}")
 
-    # TODO: 2: split between training and test df
     y = df["SepsisLabel"]
     train_df, test_df = train_test_split(
         df,
@@ -188,8 +185,7 @@ def preprocess_data(
         random_state=random_state,
         stratify=y
     )
-
-    # TODO: only sampling for training data
+    
     if sampling:
         train_df = over_under_sample(
             df=train_df,
@@ -197,7 +193,6 @@ def preprocess_data(
             minority_ratio=sampling_minority_ratio
         )
 
-    # TODO: reduce dataset size
     if train_sample_fraction < 1.0:
         train_df = reduce_dataset(
             df=train_df,
