@@ -157,7 +157,7 @@ def training_loop(
     best_val_loss = float('inf')
     epochs_without_improvement = 0
     min_delta = 0.001  # minimum required improvement
-    min_epochs = 20    # don't check early stopping before this epoch
+    min_epochs = 50    # don't check early stopping before this epoch
     
     threshold = 0.5
     best_threshold = threshold
@@ -228,7 +228,7 @@ def training_loop(
         print(f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc:.2f}% | Precision: {epoch_prec:.2f}% | Recall: {epoch_rec:.2f}%")
         
         # TODO: run evalution every 2-3 epochs
-        if val_loader is not None:
+        if val_loader is not None and epoch % 10 == 0:
             # best_threshold = adjust_threshold_val(model, val_loader, device, t_precision, t_recall)
             # threshold = best_threshold 
             # val_loss, val_acc, val_prec, val_rec = validate_loop(model, val_loader, loss_fn, device, threshold)
