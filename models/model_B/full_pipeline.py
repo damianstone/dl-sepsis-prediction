@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 
 from preprocess import preprocess_data
 from custom_dataset import SepsisPatientDataset, collate_fn
-from architectures import TransformerClassifier
+from architectures import TransformerClassifier, TransformerTimeSeries
 from training import training_loop
 from testing import testing_loop
 from model_utils.metrics import save_metrics
@@ -113,6 +113,25 @@ def data_plots_and_metrics(
         raise RuntimeError("Failed to save plots") from e
 
 
+def get_model(model_to_use, config, in_dim, num_heads, device):
+    if model_to_use == 'time_series':
+        model = TransformerTimeSeries(
+            input_dim=in_dim,
+            n_heads=num_heads,
+            d_model=config["model"]["d_model"],
+            n_layers=config["model"]["num_layers"],
+            drop_out=config["model"]["drop_out"]
+        ).to(device)
+    else:
+        model = TransformerClassifier(
+            input_dim=in_dim,
+            num_heads=num_heads,
+            drop_out=config["model"]["drop_out"],
+            num_layers=config["model"]["num_layers"]
+        ).to(device)
+    return model
+
+
 def full_pipeline():
     project_root = find_project_root()
     if project_root not in sys.path:
@@ -124,10 +143,10 @@ def full_pipeline():
     config = get_config(project_root, config_name_file)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # NOTE: dataset
+    # NOTE: get splitted datset into train, eval and test
     data_config = config["data"]
-    # TODO: add evaluation loop
     data_splits = preprocess_data(**data_config)
+
     X_train = data_splits["X_train"]
     y_train = data_splits["y_train"]
     patient_ids_train = data_splits["patient_ids_train"]
@@ -139,12 +158,13 @@ def full_pipeline():
     X_test = data_splits["X_test"]
     y_test = data_splits["y_test"]
     patient_ids_test = data_splits["patient_ids_test"]
-    
+
     batch_size = config["training"]["batch_size"]
     train_dataset = SepsisPatientDataset(
         X_train.values,
         y_train.values,
-        patient_ids_train.values
+        patient_ids_train.values,
+        time_index=X_train.columns.get_loc("ICULOS")
     )
     train_loader = DataLoader(
         train_dataset,
@@ -155,7 +175,8 @@ def full_pipeline():
     val_dataset = SepsisPatientDataset(
         X_val.values,
         y_val.values,
-        patient_ids_val.values
+        patient_ids_val.values,
+        time_index=X_val.columns.get_loc("ICULOS")
     )
     val_loader = DataLoader(
         val_dataset,
@@ -169,8 +190,17 @@ def full_pipeline():
     valid_heads = [h for h in range(1, in_dim + 1) if in_dim % h == 0]
     even_valid_heads = [h for h in valid_heads if h % 2 == 0]
     num_heads = even_valid_heads[-1] if even_valid_heads else valid_heads[-1]
+    
     config["model"]["input_dimention"] = in_dim
     config["model"]["number_attention_heads"] = num_heads
+
+    model = get_model(
+        model_to_use=config["xperiment"]["model"],
+        config=config,
+        in_dim=in_dim,
+        num_heads=num_heads,
+        device=device
+    )
 
     model = TransformerClassifier(
         input_dim=in_dim,
@@ -208,7 +238,8 @@ def full_pipeline():
     dataset = SepsisPatientDataset(
         X_test.values,
         y_test.values,
-        patient_ids_test.values
+        patient_ids_test.values,
+        time_index=X_test.columns.get_loc("ICULOS")
     )
     test_loader = DataLoader(
         dataset,

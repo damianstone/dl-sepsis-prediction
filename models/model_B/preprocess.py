@@ -222,6 +222,7 @@ def preprocess_data(
     
     print("Processed data saved")
 
+    # as pandas dataframe
     data_splits = {
         "X_train": train_df.drop(columns=["SepsisLabel", "patient_id"]),
         "y_train": train_df["SepsisLabel"],
