@@ -74,14 +74,16 @@ class TransformerTimeSeries(nn.Module):
         super().__init__()
         self.embedding = nn.Linear(in_features=input_dim, out_features=d_model)
         self.positional_encoder = PositionalEncoding(d_model, dropout)
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads)
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads, batch_first=True)
         self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=n_layers)
-        self.class_head = nn.Linear(in_features=d_model, out_features=1)
+        self.linear_layer = nn.Linear(in_features=d_model, out_features=1)
 
     def forward(self, x, mask=None):
         x = self.embedding(x)
         x = self.positional_encoder(x)
+        if mask is not None:
+            mask = ~mask.bool()  # to not take into consideration the 0s in the padding
         x = self.encoder(x, src_key_padding_mask=mask)
         x = x.mean(dim=1)
-        return self.class_head(x).squeeze(-1)
+        return self.linear_layer(x).squeeze(-1)
 

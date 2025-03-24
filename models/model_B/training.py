@@ -189,7 +189,7 @@ def training_loop(
             val_loss, val_acc, val_prec, val_rec, best_threshold = validate_and_adjust_threshold(
                 model, val_loader, loss_fn, device, t_precision, t_recall
             )
-            threshold = best_threshold
+            # threshold = best_threshold
             # NOTE: early stopping
             # if the validation loss doesn't improve after a few checks (patience)
             if epoch >= min_epochs:

@@ -113,19 +113,19 @@ def data_plots_and_metrics(
         raise RuntimeError("Failed to save plots") from e
 
 
-def get_model(model_to_use, config, in_dim, num_heads, device):
+def get_model(model_to_use, config, in_dim, device):
     if model_to_use == 'time_series':
         model = TransformerTimeSeries(
             input_dim=in_dim,
-            n_heads=num_heads,
+            n_heads=config["model"]["num_heads"],
             d_model=config["model"]["d_model"],
             n_layers=config["model"]["num_layers"],
-            drop_out=config["model"]["drop_out"]
+            dropout=config["model"]["drop_out"]
         ).to(device)
     else:
         model = TransformerClassifier(
             input_dim=in_dim,
-            num_heads=num_heads,
+            n_heads=config["model"]["num_heads"],
             drop_out=config["model"]["drop_out"],
             num_layers=config["model"]["num_layers"]
         ).to(device)
@@ -143,7 +143,7 @@ def full_pipeline():
     config = get_config(project_root, config_name_file)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # NOTE: get splitted datset into train, eval and test
+    # -------------------------------- DATA SPLIT --------------------------------
     data_config = config["data"]
     data_splits = preprocess_data(**data_config)
 
@@ -185,28 +185,16 @@ def full_pipeline():
         collate_fn=collate_fn
     )
 
-    # NOTE: model, loss function and optimizer
+    # -------------------------------- MODEL --------------------------------
     in_dim = X_train.shape[1]
-    valid_heads = [h for h in range(1, in_dim + 1) if in_dim % h == 0]
-    even_valid_heads = [h for h in valid_heads if h % 2 == 0]
-    num_heads = even_valid_heads[-1] if even_valid_heads else valid_heads[-1]
-    
     config["model"]["input_dimention"] = in_dim
-    config["model"]["number_attention_heads"] = num_heads
 
     model = get_model(
         model_to_use=config["xperiment"]["model"],
         config=config,
         in_dim=in_dim,
-        num_heads=num_heads,
         device=device
     )
-
-    model = TransformerClassifier(
-        input_dim=in_dim,
-        num_heads=num_heads,
-        drop_out=config["model"]["drop_out"],
-        num_layers=config["model"]["num_layers"]).to(device)
 
     # NOTE: get pos_weight to balance the loss for imbalanced classes
     if config["training"]["use_post_weight"]:
@@ -220,7 +208,7 @@ def full_pipeline():
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["training"]["lr"])
 
-    # NOTE: training loop
+    # -------------------------------- TRAINING LOOP --------------------------------
     epoch_counter, loss_counter, acc_counter, best_threshold = training_loop(
         model=model,
         train_loader=train_loader,
@@ -233,7 +221,7 @@ def full_pipeline():
     )
     save_model(config["xperiment"]["name"], model)
 
-    # NOTE: test data and testing loop
+    # -------------------------------- TESTING LOOP --------------------------------
     batch_size = config["testing"]["batch_size"]
     dataset = SepsisPatientDataset(
         X_test.values,
@@ -247,7 +235,8 @@ def full_pipeline():
         shuffle=True,
         collate_fn=collate_fn
     )
-
+    
+    # -------------------------------- METRICS AND PLOTS --------------------------------
     config["testing"]["best_threshold"] = best_threshold
     all_y_logits, all_y_probs, all_y_pred, all_y_test = testing_loop(
         model=model,
