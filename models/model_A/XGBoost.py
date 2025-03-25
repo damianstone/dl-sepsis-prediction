@@ -49,13 +49,28 @@ def recall_f1_eval(y_pred, dtrain, recall_weight=0.6):
     combined_score = recall_weight * recall + (1 - recall_weight) * f1
     return "recall_f1_combo", combined_score
 
+def slse_loss(alpha=0.5):
+    def loss(preds, dtrain):
+        y_true = dtrain.get_label()
+        eps = 1e-7
+        
+        grad = alpha * (preds - y_true) + \
+               (1 - alpha) * (np.log(preds + 1) - np.log(y_true + 1)) / (preds + 1)
+        
+        hess = alpha + (1 - alpha) * (
+            (1 - np.log(preds + 1) + np.log(y_true + 1)) / ((preds + 1)**2)
+        )
+        return grad, hess
+    return loss
+
+
 
 params = {
     "objective": "binary:logistic",
-    "eval_metric": "logloss",
     "scale_pos_weight": scale_pos_weight,
-    "max_depth": 20,
-    "eta": 0.05,
+    "max_depth": 8,
+    "eta": 0.1,
+    "gamma": 0.5,
     "subsample": 0.8,
     "colsample_bytree": 0.8,
     "lambda": 1,
@@ -68,8 +83,9 @@ bst = xgb.train(
     dtrain,
     num_boost_round=400,
     evals=[(dtest, "eval")],
-    early_stopping_rounds=20,
-    feval=lambda y_pred, dtrain: recall_f1_eval(y_pred, dtrain, recall_weight=0.5),
+    early_stopping_rounds=50,
+    obj=slse_loss(alpha=0.6), 
+    feval=lambda y_pred, dtrain: recall_f1_eval(y_pred, dtrain, recall_weight=0.6),
     maximize=True
 )
 
@@ -81,16 +97,12 @@ precision, recall, thresholds = precision_recall_curve(y_test, y_probs)
 #F1-score
 f1_scores = 2 * (precision * recall) / (precision + recall + 1e-8)
 
-acceptable_indices = np.where((recall >= 0.8) & (precision >= 0.2))[0]
+acceptable_indices = np.where((recall >= 0.7))[0]
 
 if len(acceptable_indices) > 0:
     best_idx = acceptable_indices[np.argmax(f1_scores[acceptable_indices])]
     best_thresh = thresholds[best_idx]
-    print(f"use Recall ≥ 0.8 & Precision ≥ 0.2 : {best_thresh:.2f}")
-else:
-    best_idx = np.argmax(f1_scores)
-    best_thresh = thresholds[best_idx]
-    print(f" use F1-score : {best_thresh:.2f}")
+    print(f"use Recall ≥ 0.8 ,best_thresh: {best_thresh:.2f}")
 
 model = xgb.XGBClassifier(**params)
 model.fit(X_train, y_train)
