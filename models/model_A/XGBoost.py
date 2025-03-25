@@ -1,131 +1,151 @@
-import pandas as pd
-import numpy as np
-import xgboost as xgb
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score
-import matplotlib.pyplot as plt
-import seaborn as sns
 import os
-from datetime import datetime
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 import joblib
-import graphviz
+import xgboost as xgb
+from datetime import datetime
+from sklearn.metrics import classification_report, confusion_matrix, precision_recall_curve
+from sklearn.metrics import f1_score
+import glob
 
-# Output directory with timestamp
-base_output_dir = r'C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/result'
-timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-output_dir = os.path.join(base_output_dir, timestamp)
-os.makedirs(output_dir, exist_ok=True)
 
-# Load data
-data_path = r'C:/Users/Administrator/Desktop/ds/dl-sepsis-prediction/models/model_A/filtered_data.csv'
-df = pd.read_csv(data_path)
 
-# SOFA calculation based on Sepsis-3
-def calculate_sofa(row):
-    sofa = 0
-    if row['FiO2'] > 0:
-        pao2_fio2 = row['SaO2'] / row['FiO2']
-        if pao2_fio2 < 100: sofa += 4
-        elif pao2_fio2 < 200: sofa += 3
-        elif pao2_fio2 < 300: sofa += 2
-        elif pao2_fio2 < 400: sofa += 1
+train_path = r"C:\Users\Administrator\Desktop\ds\dl-sepsis-prediction\models\model_A\diff_sofa_train.parquet"
+test_path = r"C:\Users\Administrator\Desktop\ds\dl-sepsis-prediction\models\model_A\diff_sofa_test.parquet"
 
-    if row['Platelets'] < 20: sofa += 4
-    elif row['Platelets'] < 50: sofa += 3
-    elif row['Platelets'] < 100: sofa += 2
-    elif row['Platelets'] < 150: sofa += 1
 
-    if row['Bilirubin_total'] >= 12: sofa += 4
-    elif row['Bilirubin_total'] >= 6: sofa += 3
-    elif row['Bilirubin_total'] >= 2: sofa += 2
-    elif row['Bilirubin_total'] >= 1.2: sofa += 1
+df_train = pd.read_parquet(train_path)
+df_test = pd.read_parquet(test_path)
 
-    if row['MAP'] < 70: sofa += 1
 
-    if row['Creatinine'] >= 5: sofa += 4
-    elif row['Creatinine'] >= 3.5: sofa += 3
-    elif row['Creatinine'] >= 2: sofa += 2
-    elif row['Creatinine'] >= 1.2: sofa += 1
+X_train = df_train.drop(columns=["SepsisLabel", "patient_id"])
+y_train = df_train["SepsisLabel"]
 
-    return sofa
+X_test = df_test.drop(columns=["SepsisLabel", "patient_id"])
+y_test = df_test["SepsisLabel"]
 
-df['SOFA'] = df.apply(calculate_sofa, axis=1)
+print("col：")
+print(X_train.columns.tolist())
 
-# Train using all available time steps but predict only the final time step
-X = df.drop(columns=['SepsisLabel', 'patient_id'])
-y = df['SepsisLabel']
+print("\nfirst 10 row：")
+print(X_train.head(10))
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
 
-scale_pos_weight = len(y_train[y_train == 0]) / len(y_train[y_train == 1])
+dtrain = xgb.DMatrix(X_train, label=y_train)
+dtest = xgb.DMatrix(X_test, label=y_test)
+
+scale_pos_weight = y_train.value_counts()[0] / y_train.value_counts()[1]
+
+from sklearn.metrics import recall_score, f1_score
+
+def recall_f1_eval(y_pred, dtrain, recall_weight=0.6):
+    y_true = dtrain.get_label()
+    y_pred_label = (y_pred > 0.5).astype(int)
+
+    recall = recall_score(y_true, y_pred_label)
+    f1 = f1_score(y_true, y_pred_label)
+
+    combined_score = recall_weight * recall + (1 - recall_weight) * f1
+    return "recall_f1_combo", combined_score
+
 
 params = {
-    'objective': 'binary:logistic',
-    'learning_rate': 0.1,
-    'max_depth': 10,
-    'n_estimators': 100,
-    'subsample': 0.8,
-    'colsample_bytree': 0.8,
-    'random_state': 0,
-    'eval_metric': 'logloss',
-    'scale_pos_weight': scale_pos_weight
+    "objective": "binary:logistic",
+    "eval_metric": "logloss",
+    "scale_pos_weight": scale_pos_weight,
+    "max_depth": 20,
+    "eta": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "lambda": 1,
+    "alpha": 0.05
 }
 
+
+bst = xgb.train(
+    params,
+    dtrain,
+    num_boost_round=400,
+    evals=[(dtest, "eval")],
+    early_stopping_rounds=20,
+    feval=lambda y_pred, dtrain: recall_f1_eval(y_pred, dtrain, recall_weight=0.5),
+    maximize=True
+)
+
+
+y_probs = bst.predict(dtest)
+
+precision, recall, thresholds = precision_recall_curve(y_test, y_probs)
+
+#F1-score
+f1_scores = 2 * (precision * recall) / (precision + recall + 1e-8)
+
+acceptable_indices = np.where((recall >= 0.8) & (precision >= 0.2))[0]
+
+if len(acceptable_indices) > 0:
+    best_idx = acceptable_indices[np.argmax(f1_scores[acceptable_indices])]
+    best_thresh = thresholds[best_idx]
+    print(f"use Recall ≥ 0.8 & Precision ≥ 0.2 : {best_thresh:.2f}")
+else:
+    best_idx = np.argmax(f1_scores)
+    best_thresh = thresholds[best_idx]
+    print(f" use F1-score : {best_thresh:.2f}")
+
 model = xgb.XGBClassifier(**params)
-# Train model with early stopping
-model.fit(X_train,y_train,)
+model.fit(X_train, y_train)
 
 
-y_pred = model.predict(X_test)
+y_pred = (y_probs >= best_thresh).astype(int)
 
-# Evaluate model
-accuracy = accuracy_score(y_test, y_pred)
-report = classification_report(y_test, y_pred, output_dict=True)
-print("Accuracy:", accuracy)
-print(classification_report(y_test, y_pred))
+print("Classification Report:\n", classification_report(y_test, y_pred))
+print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
 
-# Save results in unique directory
-timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-output_dir = os.path.join(base_output_dir, timestamp)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+base_dir = os.path.join(script_dir, "train_outputs")
+os.makedirs(base_dir, exist_ok=True)
+existing = glob.glob(os.path.join(base_dir, "train_*"))
+existing_nums = [int(x.split("_")[-1]) for x in existing if x.split("_")[-1].isdigit()]
+next_id = max(existing_nums) + 1 if existing_nums else 1
+output_dir = os.path.join(base_dir, f"train_{next_id}")
 os.makedirs(output_dir, exist_ok=True)
 
-# Save classification report to CSV
-report_df = pd.DataFrame(report).transpose()
-report_df.to_csv(os.path.join(output_dir, 'classification_report.csv'), index=True)
 
-# Feature importance
-plt.figure(figsize=(10, 7))
-xgb.plot_importance(model, max_num_features=15)
-plt.title('Top 15 Feature Importance')
+report_df = pd.DataFrame(classification_report(y_test, y_pred, output_dict=True)).T
+report_df.to_csv(os.path.join(output_dir, "report.csv"))
+
+
+thresholds_full = list(thresholds) + [1.0]
+precision = list(precision)[:len(thresholds_full)]
+recall = list(recall)[:len(thresholds_full)]
+f1_scores = 2 * (np.array(precision) * np.array(recall)) / (np.array(precision) + np.array(recall) + 1e-8)
+f1_scores = list(f1_scores)[:len(thresholds_full)]
+
+metrics_table = pd.DataFrame({
+    "threshold": thresholds_full,
+    "precision": precision,
+    "recall": recall,
+    "f1": f1_scores
+})
+metrics_table.to_csv(os.path.join(output_dir, "threshold_metrics.csv"), index=False)
+print("threshold_metrics.csv done")
+
+
+joblib.dump(bst, os.path.join(output_dir, "xgboost_model.pkl"))
+
+# PR
+plt.figure(figsize=(8, 5))
+plt.plot(recall, precision, label='PR Curve')
+plt.axvline(x=recall[best_idx], color='red', linestyle='--',
+            label=f"Recall = {recall[best_idx]:.2f}")
+plt.plot(recall[best_idx], precision[best_idx], 'ro')
+plt.xlabel("Recall")
+plt.ylabel("Precision")
+plt.title("Precision-Recall Curve (Recall Optimization)")
+plt.legend()
+plt.grid(True)
 plt.tight_layout()
-plt.savefig(f"{output_dir}/feature_importance.png", dpi=300)
+plt.savefig(os.path.join(output_dir, "pr_curve.png"))
 plt.close()
 
-# Get the decision tree rules in text format
-booster = model.get_booster()
-dot_data = booster.get_dump(with_stats=True, dump_format='dot')[0]
-# Convert text-based rules into a visualization
-graph = graphviz.Source(dot_data)
-# Save the enhanced tree visualization
-tree_output_path = f"{output_dir}/tree_0_full.svg" 
-graph.render(filename=tree_output_path,format='svg',engine='dot',cleanup=True)
-print(f"Tree visualization saved at: {tree_output_path}")
-
-
-# Decision rules CSV
-tree_df = model.get_booster().trees_to_dataframe()
-tree_df.query('Tree==0').to_csv(f"{output_dir}/tree_0_decision_rules.csv", index=False)
-
-# Save trained model
-model_path = os.path.join(output_dir, 'xgboost_model.pkl')
-joblib.dump(model, model_path)
-
-# Generate predictions using full time series but only store the latest for each patient
-df['Sepsis_Probability'] = model.predict_proba(X)[:, 1]
-df_latest_predictions = df.sort_values(['patient_id', 'ICULOS']).groupby('patient_id').last().reset_index()
-
-# Save final patient-level predictions
-prediction_output_path = os.path.join(output_dir, 'patient_predictions.csv')
-df_latest_predictions[['patient_id', 'ICULOS', 'Sepsis_Probability']].to_csv(prediction_output_path, index=False)
-
-print(f"Final predictions saved at: {prediction_output_path}")
+print(f"save to  {output_dir}")
