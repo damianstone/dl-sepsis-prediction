@@ -6,7 +6,7 @@ import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
 import yaml
-
+from pathlib import Path
 FEATURE_NAMES = ['HR', 'O2Sat', 'Temp', 'SBP', 'MAP', 'DBP', 'Resp', 'BaseExcess',
                                 'HCO3', 'FiO2', 'pH', 'PaCO2', 'SaO2', 'AST', 'BUN', 'Alkalinephos',
                                 'Calcium', 'Chloride', 'Creatinine', 'Bilirubin_direct', 'Glucose',
@@ -36,6 +36,7 @@ def save_xperiment_yaml(root, config):
             width=70,
         )
 
+
 def display_balance_statistics(df):
     patient_df = df.groupby("patient_id")["SepsisLabel"].max().reset_index()
     counts = patient_df["SepsisLabel"].value_counts()
@@ -48,3 +49,16 @@ def display_balance_statistics(df):
     if len(counts) >= 2:
         imbalance_ratio = counts.max() / counts.min()
         print(f"Imbalance ratio (majority/minority): {imbalance_ratio:.2f}")
+
+
+def find_project_root(marker=".gitignore"):
+    """
+    walk up from the current working directory until a directory containing the
+    specified marker (e.g., .gitignore) is found.
+    """
+    current = Path.cwd()
+    for parent in [current] + list(current.parents):
+        if (parent / marker).exists():
+            return parent.resolve()
+    raise FileNotFoundError(
+        f"Project root marker '{marker}' not found starting from {current}")

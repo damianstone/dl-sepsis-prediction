@@ -4,11 +4,12 @@ from collections import defaultdict
 
 # NOTE: purpose is to return in tensors and convert into sequences format + padding and masking
 
+
 class SepsisPatientDataset(Dataset):
-    def __init__(self, data, labels, patient_ids):
+    def __init__(self, data, labels, patient_ids, time_index):
         """
         stores input data and groups patient records together  
-        
+
         example before grouping:  
         patient_ids = ["A", "A", "B", "B", "B"]  
         data = [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6], [0.7, 0.8], [0.9, 1.0]]  
@@ -17,6 +18,7 @@ class SepsisPatientDataset(Dataset):
         self.data = data
         self.labels = labels
         self.patient_ids = patient_ids
+        self.time_index = time_index  # index of ICULUS
         self.patient_to_records = self._group_by_patient()
 
     def _group_by_patient(self):
@@ -30,8 +32,14 @@ class SepsisPatientDataset(Dataset):
         ]  
         """
         patient_dict = defaultdict(list)
+
         for i, pid in enumerate(self.patient_ids):
             patient_dict[pid].append((self.data[i], self.labels[i]))
+
+        # Sort each patient's records by ICULOS (ascending) - important for the positional encoding
+        for pid in patient_dict:
+            patient_dict[pid].sort(key=lambda x: x[0][self.time_index])
+
         return list(patient_dict.values())
 
     def __len__(self):
@@ -53,10 +61,12 @@ class SepsisPatientDataset(Dataset):
         y = tensor(1)  # because at least one record has sepsis  
         """
         patient_records = self.patient_to_records[idx]
-        X = torch.stack([torch.tensor(record[0], dtype=torch.float32) for record in patient_records])
+        X = torch.stack([torch.tensor(record[0], dtype=torch.float32)
+                        for record in patient_records])
         y = torch.tensor([record[1] for record in patient_records], dtype=torch.float32)
 
         return X, y.max()
+
 
 def collate_fn(batch):
     """

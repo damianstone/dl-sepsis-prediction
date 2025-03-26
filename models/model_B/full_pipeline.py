@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 
 from preprocess import preprocess_data
 from custom_dataset import SepsisPatientDataset, collate_fn
-from architectures import TransformerClassifier
+from architectures import TransformerClassifier, TransformerTimeSeries
 from training import training_loop
 from testing import testing_loop
 from model_utils.metrics import save_metrics
@@ -48,7 +48,16 @@ def save_model(xperiment_name, model):
     model_file = model_path / f"{xperiment_name}.pth"
     torch.save(model.state_dict(), model_file)
 
-# TODO: fix
+
+def print_imbalance_ratio(y, dataset_name):
+    print(f"Dataset: {dataset_name}")
+    positive_count = (y == 1).sum()
+    negative_count = (y == 0).sum()
+    imbalance_ratio = positive_count / negative_count
+    print(f"Positive samples: {positive_count}")
+    print(f"Negative samples: {negative_count}")
+    print(f"Imbalance ratio: {imbalance_ratio:.2%}")
+    print("-"*50)
 
 
 def get_pos_weight(ids, y, max_weight=5):
@@ -56,10 +65,10 @@ def get_pos_weight(ids, y, max_weight=5):
     patient_summary = train_df.groupby("patient_id")["SepsisLabel"].max().reset_index()
     negative_count = (patient_summary["SepsisLabel"] == 0).sum()
     positive_count = (patient_summary["SepsisLabel"] == 1).sum()
-    
+
     if positive_count == 0:
         raise ValueError("No positive samples found in training set.")
-    
+
     weight = round(negative_count / positive_count, 2)
     p_w = min(weight, max_weight)
     return weight, torch.tensor([p_w], dtype=torch.float32)
@@ -115,6 +124,25 @@ def data_plots_and_metrics(
         raise RuntimeError("Failed to save plots") from e
 
 
+def get_model(model_to_use, config, in_dim, device):
+    if model_to_use == 'time_series':
+        model = TransformerTimeSeries(
+            input_dim=in_dim,
+            n_heads=config["model"]["num_heads"],
+            d_model=config["model"]["d_model"],
+            n_layers=config["model"]["num_layers"],
+            dropout=config["model"]["drop_out"]
+        ).to(device)
+    else:
+        model = TransformerClassifier(
+            input_dim=in_dim,
+            n_heads=config["model"]["num_heads"],
+            drop_out=config["model"]["drop_out"],
+            num_layers=config["model"]["num_layers"]
+        ).to(device)
+    return model
+
+
 def full_pipeline():
     project_root = find_project_root()
     if project_root not in sys.path:
@@ -126,38 +154,61 @@ def full_pipeline():
     config = get_config(project_root, config_name_file)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # NOTE: dataset
+    # -------------------------------- DATA SPLIT --------------------------------
     data_config = config["data"]
-    # TODO: add evaluation loop
-    X_train, X_test, y_train, y_test, patient_ids_train, patient_ids_test = preprocess_data(
-        **data_config)
+    data_splits = preprocess_data(**data_config)
+
+    X_train = data_splits["X_train"]
+    y_train = data_splits["y_train"]
+    patient_ids_train = data_splits["patient_ids_train"]
+    print_imbalance_ratio(y_train, "Training set")
+
+    X_val = data_splits["X_val"]
+    y_val = data_splits["y_val"]
+    patient_ids_val = data_splits["patient_ids_val"]
+    print_imbalance_ratio(y_val, "Validation set")
+
+    X_test = data_splits["X_test"]
+    y_test = data_splits["y_test"]
+    patient_ids_test = data_splits["patient_ids_test"]
+    print_imbalance_ratio(y_test, "Test set")
 
     batch_size = config["training"]["batch_size"]
-    dataset = SepsisPatientDataset(
+    train_dataset = SepsisPatientDataset(
         X_train.values,
         y_train.values,
-        patient_ids_train.values
+        patient_ids_train.values,
+        time_index=X_train.columns.get_loc("ICULOS")
     )
     train_loader = DataLoader(
-        dataset,
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn
+    )
+    val_dataset = SepsisPatientDataset(
+        X_val.values,
+        y_val.values,
+        patient_ids_val.values,
+        time_index=X_val.columns.get_loc("ICULOS")
+    )
+    val_loader = DataLoader(
+        val_dataset,
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn
     )
 
-    # NOTE: model, loss function and optimizer
+    # -------------------------------- MODEL --------------------------------
     in_dim = X_train.shape[1]
-    valid_heads = [h for h in range(1, in_dim + 1) if in_dim % h == 0]
-    even_valid_heads = [h for h in valid_heads if h % 2 == 0]
-    num_heads = even_valid_heads[-1] if even_valid_heads else valid_heads[-1]
     config["model"]["input_dimention"] = in_dim
-    config["model"]["number_attention_heads"] = num_heads
 
-    model = TransformerClassifier(
-        input_dim=in_dim,
-        num_heads=num_heads,
-        drop_out=config["model"]["drop_out"],
-        num_layers=config["model"]["num_layers"]).to(device)
+    model = get_model(
+        model_to_use=config["xperiment"]["model"],
+        config=config,
+        in_dim=in_dim,
+        device=device
+    )
 
     # NOTE: get pos_weight to balance the loss for imbalanced classes
     if config["training"]["use_post_weight"]:
@@ -171,24 +222,26 @@ def full_pipeline():
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["training"]["lr"])
 
-    # NOTE: training loop
+    # -------------------------------- TRAINING LOOP --------------------------------
     epoch_counter, loss_counter, acc_counter, best_threshold = training_loop(
+        experiment_name=config["xperiment"]["name"],
         model=model,
         train_loader=train_loader,
+        val_loader=val_loader,
         optimizer=optimizer,
         loss_fn=loss_fn,
         epochs=config["training"]["epochs"],
         device=device,
-        threshold_update_n_batches=config["training"]["threshold_update_n_batches"],
     )
     save_model(config["xperiment"]["name"], model)
 
-    # NOTE: test data and testing loop
+    # -------------------------------- TESTING LOOP --------------------------------
     batch_size = config["testing"]["batch_size"]
     dataset = SepsisPatientDataset(
         X_test.values,
         y_test.values,
-        patient_ids_test.values
+        patient_ids_test.values,
+        time_index=X_test.columns.get_loc("ICULOS")
     )
     test_loader = DataLoader(
         dataset,
@@ -197,6 +250,7 @@ def full_pipeline():
         collate_fn=collate_fn
     )
 
+    # -------------------------------- METRICS AND PLOTS --------------------------------
     config["testing"]["best_threshold"] = best_threshold
     all_y_logits, all_y_probs, all_y_pred, all_y_test = testing_loop(
         model=model,

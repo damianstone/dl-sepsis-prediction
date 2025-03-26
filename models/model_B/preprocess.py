@@ -23,31 +23,38 @@ def find_project_root(marker=".gitignore"):
         f"Project root marker '{marker}' not found starting from {current}")
 
 
-def save_processed_data(root, train_df, test_df, file_name):
+def save_processed_data(root, train_df, val_df, test_df, file_name):
     df_train = train_df.copy()
+    df_val = val_df.copy()
     df_test = test_df.copy()
 
     save_path = f"{root}/dataset/{file_name}.parquet"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     df_train.to_parquet(f"{root}/dataset/{file_name}_train.parquet")
+    df_val.to_parquet(f"{root}/dataset/{file_name}_val.parquet")
     df_test.to_parquet(f"{root}/dataset/{file_name}_test.parquet")
 
 
 def load_processed_data(root, file_name):
     train_df = pd.read_parquet(f"{root}/dataset/{file_name}_train.parquet")
+    val_df = pd.read_parquet(f"{root}/dataset/{file_name}_val.parquet")
     test_df = pd.read_parquet(f"{root}/dataset/{file_name}_test.parquet")
 
-    X_train = train_df.drop(columns=["SepsisLabel", "patient_id"])
-    y_train = train_df["SepsisLabel"]
-    patient_ids_train = train_df["patient_id"]
-
-    X_test = test_df.drop(columns=["SepsisLabel", "patient_id"])
-    y_test = test_df["SepsisLabel"]
-    patient_ids_test = test_df["patient_id"]
+    data_splits = {
+        "X_train": train_df.drop(columns=["SepsisLabel", "patient_id"]),
+        "y_train": train_df["SepsisLabel"],
+        "patient_ids_train": train_df["patient_id"],
+        "X_val": val_df.drop(columns=["SepsisLabel", "patient_id"]),
+        "y_val": val_df["SepsisLabel"],
+        "patient_ids_val": val_df["patient_id"],
+        "X_test": test_df.drop(columns=["SepsisLabel", "patient_id"]),
+        "y_test": test_df["SepsisLabel"],
+        "patient_ids_test": test_df["patient_id"],
+    }
 
     print("Loaded from last processed data")
-    return X_train, X_test, y_train, y_test, patient_ids_train, patient_ids_test
+    return data_splits
 
 
 def over_under_sample(df, method="oversample", minority_ratio=0.3):
@@ -179,13 +186,20 @@ def preprocess_data(
         sys.exit(f"Error loading dataset from {df_path}: {e}")
 
     y = df["SepsisLabel"]
-    train_df, test_df = train_test_split(
+    train_val_df, test_df = train_test_split(
         df,
         test_size=test_size,
         random_state=random_state,
         stratify=y
     )
-    
+
+    train_df, val_df = train_test_split(
+        train_val_df, 
+        test_size=0.125, 
+        stratify=train_val_df["SepsisLabel"], 
+        random_state=42
+    )
+
     if sampling:
         train_df = over_under_sample(
             df=train_df,
@@ -202,22 +216,38 @@ def preprocess_data(
     save_processed_data(
         project_root,
         train_df,
+        val_df,
         test_df,
         file_name="small_imputed_sofa")
-    print("Processed data saved")
     
-    X_train = train_df.drop(columns=["SepsisLabel", "patient_id"])
-    y_train = train_df["SepsisLabel"]
-    patient_ids_train = train_df["patient_id"]
+    print("Processed data saved")
 
-    X_test = test_df.drop(columns=["SepsisLabel", "patient_id"])
-    y_test = test_df["SepsisLabel"]
-    patient_ids_test = test_df["patient_id"]
+    # as pandas dataframe
+    data_splits = {
+        "X_train": train_df.drop(columns=["SepsisLabel", "patient_id"]),
+        "y_train": train_df["SepsisLabel"],
+        "patient_ids_train": train_df["patient_id"],
+        "X_val": val_df.drop(columns=["SepsisLabel", "patient_id"]),
+        "y_val": val_df["SepsisLabel"],
+        "patient_ids_val": val_df["patient_id"],
+        "X_test": test_df.drop(columns=["SepsisLabel", "patient_id"]),
+        "y_test": test_df["SepsisLabel"],
+        "patient_ids_test": test_df["patient_id"],
+    }
 
-    return X_train, X_test, y_train, y_test, patient_ids_train, patient_ids_test
+    return data_splits
 
 
 if __name__ == '__main__':
-    X_train, X_test, y_train, y_test, patient_ids_train, patient_ids_test = preprocess_data(
-        use_last_processed_data=False, data_file_name="big_imputed_sofa")
-    print(f"Train size: {X_train.shape}, Test size: {X_test.shape}")
+    data_splits = preprocess_data(use_last_processed_data=False, data_file_name="big_imputed_sofa")
+    X_train = data_splits["X_train"]
+    y_train = data_splits["y_train"]
+    patient_ids_train = data_splits["patient_ids_train"]
+
+    X_val = data_splits["X_val"]
+    y_val = data_splits["y_val"]
+    patient_ids_val = data_splits["patient_ids_val"]
+
+    X_test = data_splits["X_test"]
+    y_test = data_splits["y_test"]
+    patient_ids_test = data_splits["patient_ids_test"]

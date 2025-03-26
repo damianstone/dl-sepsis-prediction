@@ -17,12 +17,28 @@ model:
 training:
   batch_size: 32
   use_post_weight: true
-  max_post_weight: 1.5
+  max_post_weight: 5
   lr: 0.001
   epochs: 50
   threshold_update_n_batches: -1
   weight: 1.51
-  post_weight: 1.5
+  post_weight: 1.5099999904632568
 testing:
   batch_size: 32
-  best_threshold: 0.5
+  best_threshold: !!python/object/apply:numpy.core.multiarray.scalar
+  - !!python/object/apply:numpy.dtype
+    args:
+    - f8
+    - false
+    - true
+    state: !!python/tuple
+    - 3
+    - <
+    - null
+    - null
+    - null
+    - -1
+    - -1
+    - 0
+  - !!binary |
+    AAAAAAAA6D8=
