@@ -16,15 +16,14 @@ model:
   d_model: 64
   num_heads: 2
   num_layers: 2
-  drop_out: 0.1
+  drop_out: 0.5
 
 training:
   batch_size: 32
   use_post_weight: True
   max_post_weight: 5
   lr: 0.001
-  epochs: 100
-  threshold_update_n_batches: -1
+  epochs: 10
 
 testing:
   batch_size: 32

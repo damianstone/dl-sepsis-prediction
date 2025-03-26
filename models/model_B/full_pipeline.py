@@ -49,6 +49,17 @@ def save_model(xperiment_name, model):
     torch.save(model.state_dict(), model_file)
 
 
+def print_imbalance_ratio(y, dataset_name):
+    print(f"Dataset: {dataset_name}")
+    positive_count = (y == 1).sum()
+    negative_count = (y == 0).sum()
+    imbalance_ratio = positive_count / negative_count
+    print(f"Positive samples: {positive_count}")
+    print(f"Negative samples: {negative_count}")
+    print(f"Imbalance ratio: {imbalance_ratio:.2%}")
+    print("-"*50)
+
+
 def get_pos_weight(ids, y, max_weight=5):
     train_df = pd.DataFrame({"patient_id": ids, "SepsisLabel": y})
     patient_summary = train_df.groupby("patient_id")["SepsisLabel"].max().reset_index()
@@ -150,14 +161,17 @@ def full_pipeline():
     X_train = data_splits["X_train"]
     y_train = data_splits["y_train"]
     patient_ids_train = data_splits["patient_ids_train"]
+    print_imbalance_ratio(y_train, "Training set")
 
     X_val = data_splits["X_val"]
     y_val = data_splits["y_val"]
     patient_ids_val = data_splits["patient_ids_val"]
+    print_imbalance_ratio(y_val, "Validation set")
 
     X_test = data_splits["X_test"]
     y_test = data_splits["y_test"]
     patient_ids_test = data_splits["patient_ids_test"]
+    print_imbalance_ratio(y_test, "Test set")
 
     batch_size = config["training"]["batch_size"]
     train_dataset = SepsisPatientDataset(
@@ -210,6 +224,7 @@ def full_pipeline():
 
     # -------------------------------- TRAINING LOOP --------------------------------
     epoch_counter, loss_counter, acc_counter, best_threshold = training_loop(
+        experiment_name=config["xperiment"]["name"],
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
@@ -217,7 +232,6 @@ def full_pipeline():
         loss_fn=loss_fn,
         epochs=config["training"]["epochs"],
         device=device,
-        threshold_update_n_batches=config["training"]["threshold_update_n_batches"],
     )
     save_model(config["xperiment"]["name"], model)
 
@@ -235,7 +249,7 @@ def full_pipeline():
         shuffle=True,
         collate_fn=collate_fn
     )
-    
+
     # -------------------------------- METRICS AND PLOTS --------------------------------
     config["testing"]["best_threshold"] = best_threshold
     all_y_logits, all_y_probs, all_y_pred, all_y_test = testing_loop(

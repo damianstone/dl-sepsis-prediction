@@ -4,6 +4,7 @@ import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
 import sklearn.metrics as m
+import torch
 
 # def plot_roc_curve(y_true, y_probs):
 #     fpr, tpr, _ = m.roc_curve(y_true, y_probs)
@@ -95,46 +96,17 @@ def plot_confusion_matrix(y_true, y_pred, class_names=["Negative", "Positive"]):
 
     return fig
 
+# TODO: add this plot
+
 
 def plot_attention_heatmap(attention_weights, feature_names):
+
     avg_attention = np.mean(attention_weights, axis=0)
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.heatmap(avg_attention.reshape(1, -1), annot=True,
                 cmap="viridis", xticklabels=feature_names, ax=ax)
     ax.set_title("Feature Importance (Attention Heatmap)")
     ax.set_yticks([])
-    return fig
-
-
-def plot_top_10_features(model, feature_names):
-    importance = model.linear_layer.weight.detach().cpu().numpy().flatten()
-    top_idx = importance.argsort()[-10:][::-1]
-    top_features = [feature_names[i] for i in top_idx]
-    top_scores = importance[top_idx]
-
-    # Reverse for top-to-bottom order
-    top_features = top_features[::-1]
-    top_scores = top_scores[::-1]
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.barh(top_features, top_scores)
-    ax.set_xlabel("Importance Score")
-    ax.set_ylabel("Top 10 Features (Most → Least)")
-    ax.set_title("Top 10 Important Features")
-    return fig
-
-
-def plot_less_10_features(model, feature_names):
-    importance = model.linear_layer.weight.detach().cpu().numpy().flatten()
-    bottom_idx = importance.argsort()[:10]
-    bottom_features = [feature_names[i] for i in bottom_idx]
-    bottom_scores = importance[bottom_idx]
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.barh(bottom_features, bottom_scores)
-    ax.set_xlabel("Importance Score")
-    ax.set_ylabel("Least 10 Features")
-    ax.set_title("Least 10 Important Features")
     return fig
 
 
@@ -149,15 +121,88 @@ def plot_loss_per_epoch(loss_counter):
     return fig
 
 
-def save_plots(
-        root,
-        xperiment_name,
-        loss_counter,
-        y_test,
-        y_probs,
-        y_pred,
-        model,
-        feature_names):
+def get_feature_importance(model, feature_names):
+    """
+    Feature importance for Linear embedding: average absolute weight per input feature.
+    """
+    with torch.no_grad():
+        # (d_model, input_dim) → (input_dim, d_model)
+        emb_weights = model.embedding.weight.detach().T  
+        emb_importance = torch.mean(torch.abs(emb_weights), dim=1)  # shape: (input_dim,)
+        importance_scores = emb_importance.cpu().numpy()
+
+    assert len(importance_scores) == len(feature_names), \
+        f"Mismatch: {len(importance_scores)} scores vs {len(feature_names)} features"
+
+    return dict(zip(feature_names, importance_scores))
+
+
+
+def plot_top_10_features(model, feature_names):
+    feature_importance = get_feature_importance(model, feature_names)
+
+    # Sort features by importance
+    sorted_features = dict(sorted(feature_importance.items(),
+                                  key=lambda x: x[1],
+                                  reverse=True))
+
+    # Get top 10
+    top_10 = dict(list(sorted_features.items())[:10])
+
+    # Create plot
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(top_10.keys(), top_10.values())
+
+    # Customize plot
+    plt.xticks(rotation=45, ha='right')
+    plt.title('Top 10 Most Important Features')
+    plt.xlabel('Features')
+    plt.ylabel('Importance Score')
+
+    # Add value labels on top of bars
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                f'{height:.4f}',
+                ha='center', va='bottom')
+
+    plt.tight_layout()
+    return fig
+
+
+def plot_less_10_features(model, feature_names):
+    feature_importance = get_feature_importance(model, feature_names)
+
+    # Sort features by importance
+    sorted_features = dict(sorted(feature_importance.items(),
+                                  key=lambda x: x[1],
+                                  reverse=False))
+
+    # Get bottom 10
+    bottom_10 = dict(list(sorted_features.items())[:10])
+
+    # Create plot
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bars = ax.bar(bottom_10.keys(), bottom_10.values())
+
+    # Customize plot
+    plt.xticks(rotation=45, ha='right')
+    plt.title('10 Least Important Features')
+    plt.xlabel('Features')
+    plt.ylabel('Importance Score')
+
+    # Add value labels on top of bars
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                f'{height:.4f}',
+                ha='center', va='bottom')
+
+    plt.tight_layout()
+    return fig
+
+
+def save_plots(root, xperiment_name, loss_counter, y_test, y_probs, y_pred, model, feature_names):
     save_path = f"{root}/models/model_B/results/{xperiment_name}"
     os.makedirs(save_path, exist_ok=True)
 
