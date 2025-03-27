@@ -80,14 +80,10 @@ def training_loop(
 
     patience = 10  # if the validation doesn't improve after K (patience) checks
     best_loss = float('inf')
-    patience = 5
     epochs_without_improvement = 0
     min_delta = 0.001
-    # min_epochs = epochs // 3
-    min_epochs = 1
-
+    min_epochs = 10
     threshold = 0.5
-    best_threshold = threshold
 
     for epoch in range(epochs):
         model.train()
@@ -156,7 +152,7 @@ def training_loop(
                         print("early stopping triggered")
                         break
 
-    return epoch_counter, loss_counter, acc_counter, best_threshold
+    return epoch_counter, loss_counter, acc_counter
 
 
 # ---------------------- Main Execution ----------------------
