@@ -23,16 +23,18 @@ def save_metrics(
     recall = m.recall_score(y_test, y_pred, average='weighted', zero_division=0)
     auc_score = m.roc_auc_score(y_test, y_probs)
     f1 = m.f1_score(y_test, y_pred, average='weighted', zero_division=0)
+    f_beta = m.fbeta_score(y_test, y_pred, beta=2, average='weighted', zero_division=0)
     report = m.classification_report(y_test, y_pred, output_dict=True, zero_division=0)
 
     metrics = {
+        "f1_score": round(float(f1), 3),
+        "f2_score": round(float(f_beta), 3),
         "balanced_accuracy": round(float(accuracy), 3),
         "accuracy": round(float(balanced_accuracy), 3),
         "best_threshold": round(float(best_threshold), 3),
         "AUC": round(float(auc_score), 3),
         "precision": round(float(precision), 3),
         "recall": round(float(recall), 3),
-        "f1_score": round(float(f1), 3),
         "classification_report": report,
     }
 

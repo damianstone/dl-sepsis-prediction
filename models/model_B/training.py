@@ -13,6 +13,7 @@ def save_model(xperiment_name, model):
     model_file = model_path / f"{xperiment_name}.pth"
     torch.save(model.state_dict(), model_file)
 
+
 def print_validation_metrics(val_loss, val_acc, val_prec, val_rec):
     print("\nValidation Metrics:")
     print(f"{'='*40}")
@@ -21,7 +22,151 @@ def print_validation_metrics(val_loss, val_acc, val_prec, val_rec):
     print(f"Precision:  {val_prec*100:.2f}%") 
     print(f"Recall:     {val_rec*100:.2f}%")
     print(f"F1-Score:   {2 * (val_prec * val_rec) / (val_prec + val_rec)*100:.2f}%")
+    f_beta = (1 + 2**2) * (val_prec * val_rec) / (2**2 * val_prec + val_rec + 1e-8)
+    print(f"F2-Score:   {f_beta*100:.2f}%")
 
+def validation_loop(model, val_loader, loss_fn, device, threshold):
+    model.eval()
+    val_loss, val_acc, val_prec, val_rec = 0, 0, 0, 0
+    t_accuracy = Accuracy(task='binary').to(device)
+    t_precision = Precision(task='binary').to(device)
+    t_recall = Recall(task='binary').to(device)
+
+    with torch.no_grad():
+        for X_batch, y_batch, attention_mask in val_loader:
+            X_batch, y_batch, attention_mask = (
+                X_batch.to(device),
+                y_batch.to(device),
+                attention_mask.to(device)
+            )
+
+            y_logits = model(X_batch, mask=attention_mask)
+            y_probs = torch.sigmoid(y_logits)
+            y_preds = (y_probs >= threshold).float()
+
+            loss = loss_fn(y_logits.squeeze(), y_batch.float())
+            
+            acc = t_accuracy(y_preds.squeeze(), y_batch.float())
+            prec = t_precision(y_preds.squeeze(), y_batch.float())
+            rec = t_recall(y_preds.squeeze(), y_batch.float())
+
+            val_loss += loss.item()
+            val_acc += acc.item()
+            val_prec += prec.item()
+            val_rec += rec.item()
+
+    n_batches = len(val_loader)
+    val_loss, val_acc, val_prec, val_rec = (
+        val_loss / n_batches,
+        val_acc / n_batches,
+        val_prec / n_batches,
+        val_rec / n_batches
+    )
+    return val_loss, val_acc, val_prec, val_rec
+
+def training_loop(
+        experiment_name,
+        model,
+        train_loader,
+        val_loader,
+        optimizer,
+        loss_fn,
+        epochs,
+        device):
+    epoch_counter, loss_counter, acc_counter = [], [], []
+    t_accuracy = Accuracy(task='binary').to(device)
+    t_precision = Precision(task='binary').to(device)
+    t_recall = Recall(task='binary').to(device)
+
+    patience = 5  # if the validation doesn't improve after K (patience) checks
+    best_loss = float('inf')
+    patience = 5
+    epochs_without_improvement = 0
+    min_delta = 0.001
+    # min_epochs = epochs // 3
+    min_epochs = 1
+
+    threshold = 0.5
+    best_threshold = threshold
+
+    for epoch in range(epochs):
+        model.train()
+        epoch_loss, epoch_acc, epoch_prec, epoch_rec = 0, 0, 0, 0
+        batch_count = 0
+        progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False)
+
+        for X_batch, y_batch, attention_mask in train_loader:
+            X_batch, y_batch, attention_mask = (
+                X_batch.to(device),
+                y_batch.to(device),
+                attention_mask.to(device)
+            )
+
+            # Forward pass
+            y_logits = model(X_batch, mask=attention_mask)
+            y_probs = torch.sigmoid(y_logits)
+            y_preds = (y_probs >= threshold).float()
+            
+            # compute loss
+            loss = loss_fn(y_logits.squeeze(), y_batch.float())
+
+            # metrics
+            acc = t_accuracy(y_preds.squeeze(), y_batch.float())
+            prec = t_precision(y_preds.squeeze(), y_batch.float())
+            rec = t_recall(y_preds.squeeze(), y_batch.float())
+
+            # Backpropagation
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            batch_count += 1
+
+            # update epoch metrics
+            epoch_loss += loss.item()
+            epoch_acc += acc.item()
+            epoch_prec += prec.item()
+            epoch_rec += rec.item()
+
+            progress_bar.set_postfix(
+                {"Loss": loss.item(), "Acc": acc.item(), "Prec": prec.item(), "Rec": rec.item()})
+
+        epoch_loss /= len(train_loader)
+        epoch_acc /= len(train_loader)
+        epoch_prec /= len(train_loader)
+        epoch_rec /= len(train_loader)
+        epoch_counter.append(epoch + 1)
+        loss_counter.append(epoch_loss)
+        acc_counter.append(epoch_acc)
+
+        print(f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc:.2f}% | Precision: {epoch_prec:.2f}% | Recall: {epoch_rec:.2f}%")
+
+        if val_loader is not None and epoch % 2 == 0:
+            val_loss, val_acc, val_prec, val_rec = validation_loop(
+                model, val_loader, loss_fn, device, threshold)
+            print_validation_metrics(val_loss, val_acc, val_prec, val_rec)
+            if epoch >= min_epochs:
+                if val_loss < best_loss:
+                    best_loss = val_loss
+                    epochs_without_improvement = 0
+                    save_model(experiment_name, model)
+                else:
+                    epochs_without_improvement += 1
+                    if epochs_without_improvement >= patience:
+                        print("early stopping triggered")
+                        break
+
+    return epoch_counter, loss_counter, acc_counter, best_threshold
+
+
+# ---------------------- Main Execution ----------------------
+if __name__ == "__main__":
+    print("not implemented")
+    # train(model, train_loader, optimizer, loss_fn, epochs, device, threshold_update_n_batches)
+
+
+
+"""
 def validate_and_adjust_threshold(
         model,
         val_loader,
@@ -83,139 +228,4 @@ def validate_and_adjust_threshold(
     # print(f"Adjusted validation threshold to: {best_threshold:.2f} with FB: {best_fbeta:.4f}")
     return avg_loss, avg_acc, avg_prec, avg_rec, None
 
-def validation_loop(model, val_loader, loss_fn, device, threshold):
-    model.eval()
-    val_loss, val_acc, val_prec, val_rec = 0, 0, 0, 0
-    t_accuracy = Accuracy(task='binary').to(device)
-    t_precision = Precision(task='binary').to(device)
-    t_recall = Recall(task='binary').to(device)
-
-    with torch.inference_mode():
-        for X_batch, y_batch, attention_mask in val_loader:
-            X_batch, y_batch, attention_mask = (
-                X_batch.to(device),
-                y_batch.to(device),
-                attention_mask.to(device)
-            )
-
-            y_logits = model(X_batch, mask=attention_mask)
-            y_probs = torch.sigmoid(y_logits)
-            y_preds = (y_probs >= threshold).float()
-            
-            loss = loss_fn(y_logits.squeeze(), y_batch.float())
-            acc = t_accuracy(y_preds.squeeze(), y_batch.float())
-            prec = t_precision(y_preds.squeeze(), y_batch.float())
-            rec = t_recall(y_preds.squeeze(), y_batch.float())
-
-            val_loss += loss.item()
-            val_acc += acc.item()
-            val_prec += prec.item()
-            val_rec += rec.item()
-
-    n_batches = len(val_loader)
-    val_loss, val_acc, val_prec, val_rec = (
-        val_loss / n_batches,
-        val_acc / n_batches,
-        val_prec / n_batches,
-        val_rec / n_batches
-    )
-
-    return val_loss, val_acc, val_prec, val_rec
-
-def training_loop(
-        experiment_name,
-        model,
-        train_loader,
-        val_loader,
-        optimizer,
-        loss_fn,
-        epochs,
-        device):
-    epoch_counter, loss_counter, acc_counter = [], [], []
-    t_accuracy = Accuracy(task='binary').to(device)
-    t_precision = Precision(task='binary').to(device)
-    t_recall = Recall(task='binary').to(device)
-
-    patience = 5  # if the validation doesn't improve after K (patience) checks
-    best_loss = float('inf')
-    patience = 5
-    epochs_without_improvement = 0
-    min_delta = 0.001
-    min_epochs = epochs // 2
-
-    threshold = 0.5
-    best_threshold = threshold
-
-    for epoch in range(epochs):
-        model.train()
-        epoch_loss, epoch_acc, epoch_prec, epoch_rec = 0, 0, 0, 0
-        batch_count = 0
-        progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False)
-
-        for X_batch, y_batch, attention_mask in train_loader:
-            X_batch, y_batch, attention_mask = (
-                X_batch.to(device),
-                y_batch.to(device),
-                attention_mask.to(device)
-            )
-
-            # Forward pass
-            y_logits = model(X_batch, mask=attention_mask)
-            y_probs = torch.sigmoid(y_logits)
-            y_preds = (y_probs >= threshold).float()
-            # compute loss
-            loss = loss_fn(y_logits.squeeze(), y_batch.float())
-
-            # metrics
-            acc = t_accuracy(y_preds.squeeze(), y_batch.float())
-            prec = t_precision(y_preds.squeeze(), y_batch.float())
-            rec = t_recall(y_preds.squeeze(), y_batch.float())
-
-            # Backpropagation
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            batch_count += 1
-
-            # update epoch metrics
-            epoch_loss += loss.item()
-            epoch_acc += acc.item()
-            epoch_prec += prec.item()
-            epoch_rec += rec.item()
-
-            progress_bar.set_postfix(
-                {"Loss": loss.item(), "Acc": acc.item(), "Prec": prec.item(), "Rec": rec.item()})
-
-        epoch_loss /= len(train_loader)
-        epoch_acc /= len(train_loader)
-        epoch_prec /= len(train_loader)
-        epoch_rec /= len(train_loader)
-        epoch_counter.append(epoch + 1)
-        loss_counter.append(epoch_loss)
-        acc_counter.append(epoch_acc)
-
-        print(f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc:.2f}% | Precision: {epoch_prec:.2f}% | Recall: {epoch_rec:.2f}%")
-
-        if val_loader is not None and epoch % 2 == 0:
-            val_loss, val_acc, val_prec, val_rec = validation_loop(
-                model, val_loader, loss_fn, device, threshold)
-            print_validation_metrics(val_loss, val_acc, val_prec, val_rec)
-            if epoch >= min_epochs:
-                if val_loss < best_loss:
-                    best_loss = val_loss
-                    epochs_without_improvement = 0
-                    save_model(experiment_name, model)
-                else:
-                    epochs_without_improvement += 1
-                    if epochs_without_improvement >= patience:
-                        print("early stopping triggered")
-                        break
-
-    return epoch_counter, loss_counter, acc_counter, best_threshold
-
-
-# ---------------------- Main Execution ----------------------
-if __name__ == "__main__":
-    print("not implemented")
-    # train(model, train_loader, optimizer, loss_fn, epochs, device, threshold_update_n_batches)
+"""

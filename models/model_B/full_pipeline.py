@@ -49,16 +49,26 @@ def save_model(xperiment_name, model):
     torch.save(model.state_dict(), model_file)
 
 
-def print_imbalance_ratio(y, dataset_name):
+def print_imbalance_ratio(y, patient_ids, dataset_name):
+    df = pd.DataFrame({
+        'patient_id': patient_ids,
+        'SepsisLabel': y
+    })
+    
+    patient_summary = df.groupby('patient_id')['SepsisLabel'].max()
+    counts = patient_summary.value_counts()
+    total_patients = counts.sum()
+    
     print(f"Dataset: {dataset_name}")
-    positive_count = (y == 1).sum()
-    negative_count = (y == 0).sum()
-    imbalance_ratio = positive_count / negative_count
-    print(f"Positive samples: {positive_count}")
-    print(f"Negative samples: {negative_count}")
-    print(f"Imbalance ratio: {imbalance_ratio:.2%}")
+    print("Patient-level balance statistics:")
+    print("Total patients:", total_patients)
+    for label, count in counts.items():
+        perc = (count / total_patients) * 100
+        print(f"Label {label}: {count} patients ({perc:.2f}%)")
+    if len(counts) >= 2:
+        imbalance_ratio = counts.max() / counts.min()
+        print(f"Imbalance ratio (majority/minority): {imbalance_ratio:.2f}")
     print("-"*50)
-
 
 def get_pos_weight(ids, y, max_weight=5):
     train_df = pd.DataFrame({"patient_id": ids, "SepsisLabel": y})
@@ -161,17 +171,17 @@ def full_pipeline():
     X_train = data_splits["X_train"]
     y_train = data_splits["y_train"]
     patient_ids_train = data_splits["patient_ids_train"]
-    print_imbalance_ratio(y_train, "Training set")
+    print_imbalance_ratio(y_train, patient_ids_train, "Training set")
 
     X_val = data_splits["X_val"]
     y_val = data_splits["y_val"]
     patient_ids_val = data_splits["patient_ids_val"]
-    print_imbalance_ratio(y_val, "Validation set")
+    print_imbalance_ratio(y_val, patient_ids_val, "Validation set")
 
     X_test = data_splits["X_test"]
     y_test = data_splits["y_test"]
     patient_ids_test = data_splits["patient_ids_test"]
-    print_imbalance_ratio(y_test, "Test set")
+    print_imbalance_ratio(y_test, patient_ids_test, "Test set")
 
     batch_size = config["training"]["batch_size"]
     train_dataset = SepsisPatientDataset(
@@ -184,7 +194,8 @@ def full_pipeline():
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
+        drop_last=True
     )
     val_dataset = SepsisPatientDataset(
         X_val.values,
@@ -196,7 +207,8 @@ def full_pipeline():
         val_dataset,
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
+        drop_last=True
     )
 
     # -------------------------------- MODEL --------------------------------
@@ -233,7 +245,7 @@ def full_pipeline():
         epochs=config["training"]["epochs"],
         device=device,
     )
-    save_model(config["xperiment"]["name"], model)
+    # save_model(config["xperiment"]["name"], model)
 
     # -------------------------------- TESTING LOOP --------------------------------
     batch_size = config["testing"]["batch_size"]
@@ -247,17 +259,20 @@ def full_pipeline():
         dataset,
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
+        drop_last=True
     )
 
     # -------------------------------- METRICS AND PLOTS --------------------------------
-    config["testing"]["best_threshold"] = best_threshold
+    
+    model_path = f"{project_root}/models/model_B/saved/{config['xperiment']['name']}.pth"
+    model.load_state_dict(torch.load(model_path))
     all_y_logits, all_y_probs, all_y_pred, all_y_test = testing_loop(
         model=model,
         test_loader=test_loader,
         loss_fn=loss_fn,
         device=device,
-        threshold=best_threshold  # from the training loop
+        threshold=0.5
     )
 
     data_plots_and_metrics(
