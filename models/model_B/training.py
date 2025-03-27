@@ -78,7 +78,7 @@ def training_loop(
     t_precision = Precision(task='binary').to(device)
     t_recall = Recall(task='binary').to(device)
 
-    patience = 5  # if the validation doesn't improve after K (patience) checks
+    patience = 10  # if the validation doesn't improve after K (patience) checks
     best_loss = float('inf')
     patience = 5
     epochs_without_improvement = 0

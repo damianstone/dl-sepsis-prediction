@@ -12,8 +12,7 @@ def save_metrics(
         xperiment_name,
         y_test,
         y_probs,
-        y_pred,
-        best_threshold):
+        y_pred):
     save_path = f"{root}/models/model_B/results/{xperiment_name}"
     os.makedirs(save_path, exist_ok=True)
 
@@ -31,7 +30,6 @@ def save_metrics(
         "f2_score": round(float(f_beta), 3),
         "balanced_accuracy": round(float(accuracy), 3),
         "accuracy": round(float(balanced_accuracy), 3),
-        "best_threshold": round(float(best_threshold), 3),
         "AUC": round(float(auc_score), 3),
         "precision": round(float(precision), 3),
         "recall": round(float(recall), 3),

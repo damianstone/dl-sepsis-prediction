@@ -122,8 +122,7 @@ def data_plots_and_metrics(
         raise RuntimeError("Failed to save experiment config") from e
 
     try:
-        save_metrics(root, xperiment_name, y_test, y_probs,
-                     y_pred, config["testing"]["best_threshold"])
+        save_metrics(root, xperiment_name, y_test, y_probs, y_pred)
     except Exception as e:
         raise RuntimeError("Failed to save metrics") from e
 
