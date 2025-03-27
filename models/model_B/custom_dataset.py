@@ -69,8 +69,11 @@ class SepsisPatientDataset(Dataset):
 
 def collate_fn(batch):
     """
-    Pads sequences to the length of the longest sequence in the batch, creates an attention mask,
-    and transposes the data to the default transformer configuration, which expects inputs in the shape:
+    makes sequences the same length by padding shorter ones with zeros and 
+    creates masks to tell the transformer which values are real data versus padding.
+    
+    this function basically just makes the data compatible with the transformer model
+    in the following shape:
     (sequence_length, batch_size, feature_dim).
 
     Before padding, the data is in batch-first format:
@@ -103,7 +106,7 @@ def collate_fn(batch):
           [0, 1]   # Time step 3
         ]
 
-    Final output shapes:
+    final output shapes:
       padded_X: (sequence_length, batch_size, feature_dim)
       attention_mask: (sequence_length, batch_size)
     """
@@ -120,7 +123,7 @@ def collate_fn(batch):
         padded_X[i, :x.shape[0], :] = x
         attention_mask[i, x.shape[0]:] = 0
 
-    # Transpose to (sequence_length, batch_size, feature_dim)
+    # transpose -> (sequence_length, batch_size, feature_dim)
     padded_X = padded_X.transpose(0, 1)
     attention_mask = attention_mask.transpose(0, 1)
 

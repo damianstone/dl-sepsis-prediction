@@ -1,5 +1,5 @@
 xperiment:
-  name: "05_time_series_transformer"
+  name: "06_time_series_transformer"
   model: "time_series"
 
 data:
