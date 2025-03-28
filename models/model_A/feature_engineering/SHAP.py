@@ -14,7 +14,7 @@ def find_project_root(marker=".gitignore"):
             return parent.resolve()
     raise FileNotFoundError("Project root marker not found.")
 
-def run_shap_on_data(parquet_file="features_with_missing_interval.parquet"):
+def run_shap_on_data(parquet_file="balanced_dataset_with_features.parquet"):
     root = find_project_root()
     input_path = root / "dataset" / "XGBoost" / "feature_engineering" / parquet_file
     df = pd.read_parquet(input_path)
@@ -76,11 +76,11 @@ def run_shap_on_data(parquet_file="features_with_missing_interval.parquet"):
         "mean_abs_shap": mean_abs_shap
     }).sort_values(by="mean_abs_shap", ascending=False)
 
-    top20_df = shap_importance.head(20)
-    top20_path = output_dir / "top20_features_by_shap.csv"
-    top20_df.to_csv(top20_path, index=False)
+    top_df = shap_importance.head(40)
+    top_path = output_dir / "top_features_by_shap.csv"
+    top_df.to_csv(top_path, index=False)
 
-    print(f"Top 20 features saved to: {top20_path}")
+    print(f"Top features saved to: {top_path}")
 
     return shap_values, features, sample_index, csv_output
 
