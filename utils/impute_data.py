@@ -1,5 +1,8 @@
 import numpy as np
 import pandas as pd
+import importlib
+import matplotlib.pyplot as plt
+
 
 def impute_linear_interpolation(df: pd.DataFrame, col: str) -> pd.DataFrame:
     """
@@ -74,12 +77,10 @@ def impute_df_no_nans(
     df: pd.DataFrame,
     nan_density: float = 0.3,
     gender_bins: int = 2,
-    age_bins: int = 5,
-    hr_bins: int = 3,
-    map_bins: int = 0,
-    o2sat_bins: int = 0,
-    sbp_bins: int = 0,
-    resp_bins: int = 0
+    age_bins: int = 10,
+    hr_bins: int = 5,
+    map_bins: int = 5,
+
 ) -> tuple:
     """
     Imputes missing values in the DataFrame using two approaches:
@@ -91,28 +92,36 @@ def impute_df_no_nans(
       
     If both cluster and nearest cluster values are missing, the value remains NaN.
     """
-    # Drop the unused EtCO2 column if present
-    df_imputed = df.copy().drop(columns=["EtCO2"], errors="ignore")
+    df_imputed = df.copy()
 
     # Identify numeric columns to impute (exclude static columns)
     exclude_cols = ["patient_id", "dataset", "SepsisLabel", "ICULOS", "Age", "Gender", "HospAdmTime"]
-    candidate_cols = [c for c in df_imputed.select_dtypes(include=[np.number]).columns if c not in exclude_cols]
+    candidate_cols = [
+        c for c in df_imputed.select_dtypes(include=[np.number]).columns
+        if c not in exclude_cols
+    ]
 
     replacement_stats = {}
     lin_cols, cluster_cols = [], []
 
-    # Decide which columns to impute via linear interpolation vs. cluster-based fill
+    # Decide which columns get linear vs cluster fill
     for col in candidate_cols:
+
         if df_imputed[col].isna().mean() < nan_density:
             lin_cols.append(col)
         else:
             cluster_cols.append(col)
 
-    # Linear Interpolation imputation per patient
+    # Linear Interpolation for columns in lin_cols
     for col in lin_cols:
         missing_before = df_imputed[col].isna().sum()
-        df_imputed = df_imputed.groupby("patient_id").apply(lambda g: impute_linear_interpolation(g, col)).reset_index(drop=True)
-        df_imputed[col] = df_imputed.groupby("patient_id")[col].transform(lambda x: x.fillna(x.mean()))
+        df_imputed = df_imputed.groupby("patient_id").apply(
+            lambda g: impute_linear_interpolation(g, col)
+        ).reset_index(drop=True)
+        # Fill leftover NaNs with mean per patient, then global mean if needed
+        df_imputed[col] = df_imputed.groupby("patient_id")[col].transform(
+            lambda x: x.fillna(x.mean())
+        )
         df_imputed[col] = df_imputed[col].fillna(df_imputed[col].mean(skipna=True))
         replacement_stats[col] = {
             "Method": "linear",
@@ -120,19 +129,17 @@ def impute_df_no_nans(
             "Linear fill": 100.00
         }
 
-    # Set up binning parameters for clustering
+    # Binning parameters
     clustering_params = {
         "Gender": gender_bins,
         "Age": age_bins,
         "HR": hr_bins,
         "MAP": map_bins,
-        "O2Sat": o2sat_bins,
-        "SBP": sbp_bins,
-        "Resp": resp_bins
+
     }
     clustering_features = {feat: bins for feat, bins in clustering_params.items() if bins > 0}
 
-    # Build bin edges based on patient averages for each feature
+    # Build bin edges from patient means
     if clustering_features:
         patient_means = df_imputed.groupby("patient_id")[list(clustering_features.keys())].mean().reset_index()
     else:
@@ -140,9 +147,12 @@ def impute_df_no_nans(
     bin_edges_dict = {}
     for feat, bins in clustering_features.items():
         feat_series = patient_means[feat].dropna()
-        bin_edges_dict[feat] = compute_bin_edges(feat_series, n_bins=bins) if not feat_series.empty else np.arange(0, bins + 1)
+        if not feat_series.empty:
+            bin_edges_dict[feat] = compute_bin_edges(feat_series, n_bins=bins)
+        else:
+            bin_edges_dict[feat] = np.arange(0, bins + 1)
 
-    # Assign cluster IDs for each patient based on binned features
+    # Assign cluster_id per patient
     def assign_cluster_id_for_patient(df_patient: pd.DataFrame) -> pd.DataFrame:
         df_patient = df_patient.copy()
         features_order = ["Gender", "Age", "HR", "MAP", "O2Sat", "SBP", "Resp"]
@@ -150,8 +160,11 @@ def impute_df_no_nans(
         for feat in features_order:
             if feat in clustering_features:
                 if feat == "Gender":
-                    # Use the first available gender value, or -1 if missing
-                    val = int(df_patient[feat].iloc[0]) if not df_patient[feat].isna().all() else -1
+                    val = (
+                        int(df_patient[feat].iloc[0])
+                        if not df_patient[feat].isna().all()
+                        else -1
+                    )
                     parts.append(str(val))
                 else:
                     mean_val = df_patient[feat].mean(skipna=True)
@@ -163,7 +176,7 @@ def impute_df_no_nans(
 
     df_imputed = df_imputed.groupby("patient_id").apply(assign_cluster_id_for_patient).reset_index(drop=True)
 
-    # Cluster-based imputation for columns with high missing density
+    # Cluster-based imputation
     for col in cluster_cols:
         missing_before = df_imputed[col].isna().sum()
         df_imputed, clust_count, nearest_count = cluster_mean_imputation(df_imputed, col)
@@ -175,3 +188,55 @@ def impute_df_no_nans(
         }
 
     return df_imputed, replacement_stats
+
+
+def plot_cluster_distribution(df: pd.DataFrame) -> None:
+    cluster_counts = df["cluster_id"].value_counts().sort_index()
+    cleaned_labels = [
+        "_".join(part for part in cid.split("_") if part != "X")
+        for cid in cluster_counts.index
+    ]
+
+    plt.figure(figsize=(10, 6))
+    plt.bar(range(len(cluster_counts)), cluster_counts.values, color="#7393B3")
+    #plt.title("Frequency Distribution of Patient Clusters")
+    plt.xlabel("Cluster ID")
+    plt.ylabel("Number of Patients")
+    plt.tight_layout()
+    plt.show()
+
+def plot_cluster_fill(stats: dict) -> None:
+    # Filter columns that used the cluster-based method
+    cluster_cols = [col for col, stat in stats.items() if stat.get("Method") == "cluster"]
+
+
+    idx = np.arange(len(cluster_cols))
+    cluster_fill = [stats[col]["Cluster fill"] for col in cluster_cols]
+    nearest_fill = [stats[col]["Nearest cluster fill"] for col in cluster_cols]
+    plt.figure(figsize=(10, 6))
+    plt.bar(idx, cluster_fill, label="Cluster-mean fill", color="#7393B3")
+    plt.bar(idx, nearest_fill, bottom=cluster_fill, label="Nearest cluster-mean fill", color="#E0E0E0")
+    plt.xticks(idx, cluster_cols, rotation=90)
+    plt.ylabel("Replacement Percentage")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def print_replacement_stats(stats: dict) -> None:
+    """Prints formatted replacement statistics."""
+    print("\nReplacement statistics (percentages):")
+    label_map = {
+        "Linear fill": "Linear fill",
+        "Cluster fill": "Cluster-mean fill",
+        "Nearest cluster fill": "Nearest cluster-mean fill",
+        "Initial missing": "Initial missing"
+    }
+    for col, col_stats in stats.items():
+        print(f"Column: {col}")
+        for key, value in col_stats.items():
+            key_print = label_map.get(key, key.capitalize())
+            if isinstance(value, (int, float)):
+                print(f"  {key_print}: {value:.2f}%")
+            else:
+                print(f"  {key_print}: {value}")
+

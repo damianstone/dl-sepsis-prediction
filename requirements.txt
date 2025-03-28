@@ -11,3 +11,11 @@ openpyxl
 xgboost
 joblib
 graphviz
+torchmetrics
+torch
+torchvision
+torchaudio
+category_encoders
+numpy<2
+flake8
+flake8-black
