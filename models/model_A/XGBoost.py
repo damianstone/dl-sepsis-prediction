@@ -2,15 +2,14 @@ import pandas as pd
 import numpy as np
 import xgboost as xgb
 from pathlib import Path
-from sklearn.metrics import (
-    classification_report, confusion_matrix,
-    precision_recall_curve, roc_auc_score,
-    f1_score, recall_score, precision_score
-)
+from sklearn.metrics import (classification_report, roc_auc_score,f1_score, recall_score, precision_score)
 from sklearn.model_selection import StratifiedKFold
 import matplotlib.pyplot as plt
 import os
 import glob
+from plots import save_all_xgb_plots
+
+
 
 def find_project_root(marker=".gitignore"):
     current = Path.cwd()
@@ -46,7 +45,7 @@ def get_next_output_dir(base_dir):
     output_dir.mkdir(exist_ok=False)
     return output_dir
 
-def train_with_cv(X, y, params, n_splits=3):
+def train_xgboost(X, y, params, n_splits=3):
     from sklearn.metrics import fbeta_score
     import shutil
 
@@ -66,14 +65,7 @@ def train_with_cv(X, y, params, n_splits=3):
         dtrain = xgb.DMatrix(X_train, label=y_train)
         dtest = xgb.DMatrix(X_test, label=y_test)
 
-        bst = xgb.train(
-            params=params,
-            dtrain=dtrain,
-            num_boost_round=1000,
-            evals=[(dtest, "eval")],
-            early_stopping_rounds=50,
-            verbose_eval=50
-        )
+        bst = xgb.train(params=params,dtrain=dtrain,num_boost_round=1000,evals=[(dtest, "eval")],early_stopping_rounds=50,verbose_eval=50)
 
         y_probs = bst.predict(dtest)
         y_pred = (y_probs >= 0.5).astype(int)
@@ -100,20 +92,13 @@ def train_with_cv(X, y, params, n_splits=3):
         fold_dirs.append(fold_dir)
 
         pd.DataFrame(classification_report(y_test, y_pred, output_dict=True)).T.to_csv(fold_dir / "report.csv")
-        pd.DataFrame(confusion_matrix(y_test, y_pred)).to_csv(fold_dir / "confusion.csv")
 
-        model_path = fold_dir / "xgb_model.model"
+        model_path = fold_dir / "xgb_model.ubj "
         bst.save_model(str(model_path))
+      
+        # Plot all visualizations
+        save_all_xgb_plots(y_true=y_test,y_pred=y_pred,y_probs=y_probs,save_dir=fold_dir,booster=bst,feature_names=X.columns.tolist())
 
-        precision_vals, recall_vals, _ = precision_recall_curve(y_test, y_probs)
-        plt.figure()
-        plt.plot(recall_vals, precision_vals, label="PR Curve")
-        plt.xlabel("Recall")
-        plt.ylabel("Precision")
-        plt.title(f"Fold {fold} - Precision-Recall Curve")
-        plt.grid(True)
-        plt.savefig(fold_dir / "pr_curve.png", dpi=150)
-        plt.close()
 
     df_summary = pd.DataFrame(fold_results)
     best_idx = df_summary["F2"].idxmax()
@@ -131,10 +116,10 @@ def train_with_cv(X, y, params, n_splits=3):
     summary_all = pd.concat([df_summary, avg_row], ignore_index=True)
     summary_all.to_csv(output_base / "summary.csv", index=False)
 
-    best_model_path = output_base / "best.model"
-    shutil.copy(fold_dirs[best_idx] / "xgb_model.model", best_model_path)
+    best_model_path = output_base / "best_xgb_model.ubj "
+    shutil.copy(fold_dirs[best_idx] / "xgb_model.ubj", best_model_path)
 
-    shutil.copy(fold_dirs[best_idx] / "pr_curve.png", output_base / "best_pr_curve.png")
+    shutil.copy(fold_dirs[best_idx] / "xgb_pr_curve.png", output_base / "best_pr_curve.png")
     print(f"Best model from Fold {df_summary.loc[best_idx, 'fold']} saved to {best_model_path}")
 
 
@@ -154,7 +139,7 @@ def main():
         "alpha": 0.05
     }
 
-    train_with_cv(X, y, params=params)
+    train_xgboost(X, y, params=params)
 
 if __name__ == "__main__":
     main()
