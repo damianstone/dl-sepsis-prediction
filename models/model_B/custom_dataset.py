@@ -67,28 +67,48 @@ class SepsisPatientDataset(Dataset):
 
         return X, y.max()
 
-
 def collate_fn(batch):
     """
-    pads sequences to the longest in the batch and creates an attention mask  
-    this ensures all patient records fit into a uniform tensor shape  
+    makes sequences the same length by padding shorter ones with zeros and 
+    creates masks to tell the transformer which values are real data versus padding.
+    
+    this function basically just makes the data compatible with the transformer model
+    in the following shape:
+    (sequence_length, batch_size, feature_dim).
 
-    example before padding:  
-    X_batch = [  
-        tensor([[0.1, 0.2], [0.3, 0.4]]),  # patient A (2 records)  
-        tensor([[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]])  # patient B (3 records)  
-    ]  
+    Before padding, the data is in batch-first format:
+      X_batch = [
+          tensor([[0.1, 0.2], [0.3, 0.4]]),         # Patient A (2 records)
+          tensor([[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]])  # Patient B (3 records)
+      ]
 
-    example after padding:  
-    padded_X = [  
-        [[0.1, 0.2], [0.3, 0.4], [0.0, 0.0]],  # patient A (padded)  
-        [[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]]  # patient B  
-    ]  
+    After padding (still in batch-first format):
+      padded_X = [
+          [[0.1, 0.2], [0.3, 0.4], [0.0, 0.0]],  # Patient A (padded to 3 records)
+          [[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]]   # Patient B (no padding needed)
+      ]
+      attention_mask = [
+          [1, 1, 0],  # Patient A (third record is padding)
+          [1, 1, 1]   # Patient B (all records are valid)
+      ]
 
-    attention_mask = [  
-        [1, 1, 0],  # patient A (third row is padding)  
-        [1, 1, 1]  # patient B (all real data)  
-    ]  
+    After transposing to match the default transformer configuration:
+      padded_X becomes:
+        [
+          [[0.1, 0.2], [0.5, 0.6]],  # Time step 1 for all patients
+          [[0.3, 0.4], [0.7, 0.8]],  # Time step 2 for all patients
+          [[0.0, 0.0], [0.9, 1.0]]   # Time step 3 (Patient A padded, Patient B valid)
+        ]
+      attention_mask becomes:
+        [
+          [1, 1],  # Time step 1
+          [1, 1],  # Time step 2
+          [0, 1]   # Time step 3
+        ]
+
+    final output shapes:
+      padded_X: (sequence_length, batch_size, feature_dim)
+      attention_mask: (sequence_length, batch_size)
     """
     X_batch = [x for x, y in batch]
     y_batch = torch.stack([y for _, y in batch])
@@ -103,7 +123,49 @@ def collate_fn(batch):
         padded_X[i, :x.shape[0], :] = x
         attention_mask[i, x.shape[0]:] = 0
 
+    # transpose -> (sequence_length, batch_size, feature_dim)
+    padded_X = padded_X.transpose(0, 1)
+    attention_mask = attention_mask.transpose(0, 1)
+
     return padded_X, y_batch, attention_mask
+
+
+# def collate_fn(batch):
+#     """
+#     pads sequences to the longest in the batch and creates an attention mask  
+#     this ensures all patient records fit into a uniform tensor shape  
+
+#     example before padding:  
+#     X_batch = [  
+#         tensor([[0.1, 0.2], [0.3, 0.4]]),  # patient A (2 records)  
+#         tensor([[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]])  # patient B (3 records)  
+#     ]  
+
+#     example after padding:  
+#     padded_X = [  
+#         [[0.1, 0.2], [0.3, 0.4], [0.0, 0.0]],  # patient A (padded)  
+#         [[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]]  # patient B  
+#     ]  
+
+#     attention_mask = [  
+#         [1, 1, 0],  # patient A (third column is padding)  
+#         [1, 1, 1]  # patient B (all real data)  
+#     ]  
+#     """
+#     X_batch = [x for x, y in batch]
+#     y_batch = torch.stack([y for _, y in batch])
+
+#     max_len = max([x.shape[0] for x in X_batch])
+#     feature_dim = X_batch[0].shape[1]
+
+#     padded_X = torch.zeros(len(X_batch), max_len, feature_dim)
+#     attention_mask = torch.ones(len(X_batch), max_len)
+
+#     for i, x in enumerate(X_batch):
+#         padded_X[i, :x.shape[0], :] = x
+#         attention_mask[i, x.shape[0]:] = 0
+
+#     return padded_X, y_batch, attention_mask
 
 
 """
