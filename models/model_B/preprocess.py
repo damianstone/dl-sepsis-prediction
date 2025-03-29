@@ -146,18 +146,6 @@ def reduce_dataset(df, train_sample_fraction=0.05):
     return quick_train_df
 
 
-def get_post_weight_ratio(train_df):
-    """
-    useful for post_weight loss function
-    """
-    patient_summary = train_df.groupby("patient_id")["SepsisLabel"].max().reset_index()
-    negative_count = (patient_summary["SepsisLabel"] == 0).sum()
-    positive_count = (patient_summary["SepsisLabel"] == 1).sum()
-    if positive_count == 0:
-        raise ValueError("No positive samples found in training set.")
-    return round(negative_count / positive_count)
-
-
 def preprocess_data(
         data_file_name,
         sampling=True,
@@ -185,32 +173,46 @@ def preprocess_data(
     except Exception as e:
         sys.exit(f"Error loading dataset from {df_path}: {e}")
 
-    y = df["SepsisLabel"]
-    train_val_df, test_df = train_test_split(
-        df,
+    # First get patient-level labels (1 if any record has sepsis)
+    patient_labels = df.groupby("patient_id")["SepsisLabel"].max()
+
+    train_val_patients, test_patients = train_test_split(
+        patient_labels.index,
         test_size=test_size,
         random_state=random_state,
-        stratify=y
+        stratify=patient_labels  # Stratify by patient-level labels
     )
 
-    train_df, val_df = train_test_split(
-        train_val_df, 
-        test_size=0.125, 
-        stratify=train_val_df["SepsisLabel"], 
-        random_state=42
-    )
+    train_val_df = df[df["patient_id"].isin(train_val_patients)]
+    test_df = df[df["patient_id"].isin(test_patients)]
 
+    if train_sample_fraction < 1.0:
+        train_val_df = reduce_dataset(
+            df=train_val_df,
+            train_sample_fraction=train_sample_fraction
+        )
+
+    train_patients, val_patients = train_test_split(
+        train_val_patients,
+        test_size=0.125,
+        random_state=42,
+        stratify=patient_labels[train_val_patients]
+    )
+        
+    train_df = train_val_df[train_val_df["patient_id"].isin(train_patients)]
+    val_df = train_val_df[train_val_df["patient_id"].isin(val_patients)]
+
+    # Then balance both sets separately to ensure exact same balance
     if sampling:
         train_df = over_under_sample(
             df=train_df,
             method=sampling_method,
             minority_ratio=sampling_minority_ratio
         )
-
-    if train_sample_fraction < 1.0:
-        train_df = reduce_dataset(
-            df=train_df,
-            train_sample_fraction=train_sample_fraction
+        val_df = over_under_sample(
+            df=val_df,
+            method=sampling_method,
+            minority_ratio=sampling_minority_ratio
         )
 
     save_processed_data(
@@ -219,7 +221,7 @@ def preprocess_data(
         val_df,
         test_df,
         file_name="small_imputed_sofa")
-    
+
     print("Processed data saved")
 
     # as pandas dataframe
@@ -239,7 +241,8 @@ def preprocess_data(
 
 
 if __name__ == '__main__':
-    data_splits = preprocess_data(use_last_processed_data=False, data_file_name="big_imputed_sofa")
+    data_splits = preprocess_data(
+        use_last_processed_data=False, data_file_name="big_imputed_sofa")
     X_train = data_splits["X_train"]
     y_train = data_splits["y_train"]
     patient_ids_train = data_splits["patient_ids_train"]

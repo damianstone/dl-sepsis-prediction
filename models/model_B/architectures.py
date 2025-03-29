@@ -74,16 +74,26 @@ class TransformerTimeSeries(nn.Module):
         super().__init__()
         self.embedding = nn.Linear(in_features=input_dim, out_features=d_model)
         self.positional_encoder = PositionalEncoding(d_model, dropout)
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads, batch_first=True)
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads)
         self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=n_layers)
         self.linear_layer = nn.Linear(in_features=d_model, out_features=1)
 
     def forward(self, x, mask=None):
-        x = self.embedding(x)
-        x = self.positional_encoder(x)
+        # x: (sequence_length, batch_size, feature_dim)
+        x = self.embedding(x)                      # (seq_len, batch_size, d_model)
+        x = self.positional_encoder(x)             # (seq_len, batch_size, d_model)
+        
+        # Adjust mask shape: collate_fn returns mask as (seq_len, batch_size),
+        # but TransformerEncoder expects src_key_padding_mask as (batch_size, seq_len)
         if mask is not None:
-            mask = ~mask.bool()  # to not take into consideration the 0s in the padding
-        x = self.encoder(x, src_key_padding_mask=mask)
-        x = x.mean(dim=1)
-        return self.linear_layer(x).squeeze(-1)
+            mask = ~mask.bool()                    # invert mask (still shape: (seq_len, batch_size))
+            mask = mask.transpose(0, 1)            # now (batch_size, seq_len)
+        
+        x = self.encoder(x, src_key_padding_mask=mask)  # (seq_len, batch_size, d_model)
+        
+        # Pool over the sequence dimension (now dimension 0) to get one representation per batch element
+        x = x.mean(dim=0)                          # (batch_size, d_model)
+        x = self.linear_layer(x).squeeze(-1)         # (batch_size)
+        return x
+
 
