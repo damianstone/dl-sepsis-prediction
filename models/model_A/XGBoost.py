@@ -5,9 +5,8 @@ from pathlib import Path
 from sklearn.metrics import (classification_report, roc_auc_score,f1_score, recall_score, precision_score)
 from sklearn.model_selection import StratifiedKFold
 import matplotlib.pyplot as plt
-import os
-import glob
 from plots import save_all_xgb_plots
+from analyze_thresholds import analyze_thresholds
 
 
 
@@ -18,22 +17,40 @@ def find_project_root(marker=".gitignore"):
             return parent.resolve()
     raise FileNotFoundError("Project root marker not found.")
 
-def load_top_features(n=20):
+def load_top_features(n=30):
     root = find_project_root()
     top_path = root / "models" / "model_A" / "outputs" / "shap" / "top_features_by_shap.csv"
     top_features = pd.read_csv(top_path)["feature"].tolist()
-    return top_features[:n]
+
+    if "SOFA" not in top_features:
+        top_features.append("SOFA")
+
+    return top_features[:n] + (["SOFA"] if "SOFA" not in top_features[:n] else [])
+
+
+def load_all_features():
+    root = find_project_root()
+    path = root / "dataset" / "XGBoost" / "feature_engineering" / "train_balanced.parquet"
+    df = pd.read_parquet(path)
+
+    if not isinstance(df.index, pd.MultiIndex):
+        df.set_index(["patient_id", "ICULOS"], inplace=True)
+
+    exclude = ["SepsisLabel", "patient_id","HospAdmTime", "dataset", "Unit1", "Unit2"]
+    all_features = [col for col in df.columns if col not in exclude]
+    return all_features
 
 def load_data(features):
     root = find_project_root()
-    data_path = root / "dataset" / "XGBoost" / "feature_engineering" / "balanced_dataset_with_features.parquet"
+    data_path = root / "dataset" / "XGBoost" / "feature_engineering" / "train_balanced.parquet"
     df = pd.read_parquet(data_path)
-    if "patient_id" not in df.columns:
-        df.reset_index(inplace=True)
-    df = df[features + ["SepsisLabel"]].dropna()
-    X = df[features]
+    if not isinstance(df.index, pd.MultiIndex):
+        df.set_index(["patient_id", "ICULOS"], inplace=True)
+
+    X = df[features].fillna(-1)
     y = df["SepsisLabel"]
     return X, y
+
 
 def get_next_output_dir(base_dir):
     base_path = Path(base_dir)
@@ -91,13 +108,16 @@ def train_xgboost(X, y, params, n_splits=3):
         fold_dir.mkdir()
         fold_dirs.append(fold_dir)
 
+        #visualizations
         pd.DataFrame(classification_report(y_test, y_pred, output_dict=True)).T.to_csv(fold_dir / "report.csv")
 
         model_path = fold_dir / "xgb_model.ubj "
         bst.save_model(str(model_path))
       
-        # Plot all visualizations
         save_all_xgb_plots(y_true=y_test,y_pred=y_pred,y_probs=y_probs,save_dir=fold_dir,booster=bst,feature_names=X.columns.tolist())
+        
+        threshold_csv_path = fold_dir / "threshold_analysis.csv"
+        analyze_thresholds(y_true=y_test, y_probs=y_probs, save_path=threshold_csv_path)
 
 
     df_summary = pd.DataFrame(fold_results)
@@ -111,8 +131,8 @@ def train_xgboost(X, y, params, n_splits=3):
         "F2": df_summary["F2"].mean(),
         "Recall": df_summary["Recall"].mean(),
         "Precision": df_summary["Precision"].mean(),
-        "is_best": ""
-    }])
+        "is_best": ""}])
+    
     summary_all = pd.concat([df_summary, avg_row], ignore_index=True)
     summary_all.to_csv(output_base / "summary.csv", index=False)
 
@@ -124,19 +144,21 @@ def train_xgboost(X, y, params, n_splits=3):
 
 
 def main():
-    features = load_top_features(n=20)
+    features = load_top_features(n=50)
+    #features = load_all_features()
     X, y = load_data(features)
 
     params = {
         "objective": "binary:logistic",
         "eval_metric": "logloss",
-        "max_depth": 10,
+        "max_depth": 6,
         "eta": 0.05,
         "subsample": 0.8,
         "colsample_bytree": 0.8,
-        "scale_pos_weight": y.value_counts()[0] / y.value_counts()[1],
-        "lambda": 1,
-        "alpha": 0.05
+        "scale_pos_weight": 4,
+        "min_child_weight": 10,
+        "lambda": 5,
+        "alpha": 1
     }
 
     train_xgboost(X, y, params=params)

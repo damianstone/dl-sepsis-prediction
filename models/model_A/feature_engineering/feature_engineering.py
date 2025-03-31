@@ -84,7 +84,7 @@ def add_features(group, feature_cols):
     return group
 
 
-def run_feature_engineering(input_file="balanced_dataset.parquet", output_file="balanced_dataset_with_features.parquet"):
+def run_feature_engineering(input_file="features_with_missing_interval.parquet", output_file="after_feature_engineering.parquet"):
     root = find_project_root()
     data_path = root / "dataset" / "XGBoost" / "feature_engineering" / input_file
     out_path = root / "dataset" / "XGBoost" / "feature_engineering" / output_file
