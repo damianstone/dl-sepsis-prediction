@@ -3,3 +3,4 @@ venv-sepsis**
 dataset/*.csv
 dataset/*.pth
 models/model_A/*.csv
+dataset/XGBoost/
