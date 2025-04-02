@@ -4,8 +4,8 @@ from tqdm import tqdm
 from torchmetrics import Accuracy
 
 def testing_loop(model, test_loader, loss_fn, device, threshold=0.3):
-    model.eval()
     test_loss, test_acc = 0, 0
+    model.eval()
 
     # Initialize metrics
     t_accuracy = Accuracy(task='binary').to(device)
