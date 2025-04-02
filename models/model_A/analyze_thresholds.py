@@ -5,9 +5,7 @@ from sklearn.metrics import confusion_matrix, precision_score, recall_score, fbe
 def analyze_thresholds(
     y_true,
     y_probs,
-    save_path="threshold_analysis.csv",
-    min_recall=0.55,
-    max_fp_rate=0.2
+    save_path="threshold_analysis.csv"
 ):
     thresholds = np.linspace(0.01, 0.99, 100)
     results = []
@@ -22,9 +20,8 @@ def analyze_thresholds(
 
         tn_fp = tn + fp
         tp_fn = tp + fn
-        fpr = fp / (tn_fp + 1e-6)
 
-        if recall >= min_recall and fpr <= max_fp_rate:
+        if recall >= 0.5 and precision >= 0.5:
             results.append({
                 "threshold": round(thresh, 4),
                 "recall": round(recall, 4),
@@ -35,7 +32,6 @@ def analyze_thresholds(
                 "FN(%)": f"{fn / tp_fn:.2%}" if tp_fn else "N/A",
                 "TP(%)": f"{tp / tp_fn:.2%}" if tp_fn else "N/A",
             })
-        
 
     df = pd.DataFrame(results)
     df.to_csv(save_path, index=False)

@@ -1,7 +1,6 @@
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from missing_features import run_missing_feature_pipeline
 
 def find_project_root(marker=".gitignore"):
     current = Path.cwd()
@@ -54,7 +53,9 @@ def split_balanced_dataset_maintain_ratio(input_file="after_feature_engineering.
     df_balanced = pd.read_parquet(data_path)
 
     df_reset = df_balanced.reset_index()
-    patient_labels = df_reset.groupby("patient_id")["SepsisLabel"].max()
+    label_col = "SepsisLabel_patient" if "SepsisLabel_patient" in df_reset.columns else "SepsisLabel"
+    patient_labels = df_reset.groupby("patient_id")[label_col].max()
+
     pos_ids = patient_labels[patient_labels == 1].index.to_numpy()
     neg_ids = patient_labels[patient_labels == 0].index.to_numpy()
 
@@ -77,8 +78,9 @@ def split_balanced_dataset_maintain_ratio(input_file="after_feature_engineering.
     train_ids = set(selected_train_pos).union(set(selected_train_neg))
     test_ids = set(selected_test_pos).union(set(selected_test_neg))
 
-    df_train = df_balanced[df_balanced.index.get_level_values("patient_id").isin(train_ids)]
-    df_test = df_balanced[df_balanced.index.get_level_values("patient_id").isin(test_ids)]
+    df_train = df_balanced[df_balanced["patient_id"].isin(train_ids)]
+    df_test = df_balanced[df_balanced["patient_id"].isin(test_ids)]
+
 
     out_dir = root / "dataset" / "XGBoost" / "feature_engineering"
     df_train.to_parquet(out_dir / "train_balanced.parquet")

@@ -4,6 +4,8 @@ import xgboost as xgb
 from pathlib import Path
 from sklearn.metrics import roc_auc_score, f1_score, fbeta_score, recall_score, precision_score
 from plots import save_all_xgb_plots
+from analyze_thresholds import analyze_thresholds
+
 
 def find_project_root(marker=".gitignore"):
     current = Path.cwd()
@@ -12,16 +14,20 @@ def find_project_root(marker=".gitignore"):
             return parent.resolve()
     raise FileNotFoundError("Project root marker not found.")
 
-def load_top_features(n=30):
+def load_top_features(n):
     root = find_project_root()
-    top_path = root / "models" / "model_A" / "outputs" / "shap" / "top_features_by_shap.csv"
-    top_features = pd.read_csv(top_path)["feature"].tolist()
-    
+    shap_path = root / "models" / "model_A" / "outputs" / "shap" / "shap_features_engineered.csv"
+    shap_df = pd.read_csv(shap_path)
+    shap_df_sorted = shap_df.sort_values(by="mean_shap_positive", ascending=False)
+    top_features = shap_df_sorted["feature"].tolist()
 
-    if "SOFA" not in top_features:
-        top_features.append("SOFA")
+    sofa_features = ["SOFA_mean_global", "SOFA_max_global", "SOFA_last_global"]
+    for sofa in sofa_features:
+        if sofa not in top_features:
+            top_features.append(sofa)
 
-    return top_features[:n] + (["SOFA"] if "SOFA" not in top_features[:n] else [])
+    return top_features[:n] + sofa_features
+
 
 def get_next_predict_dir(base_dir):
     base_path = Path(base_dir)
@@ -40,15 +46,15 @@ def evaluate_on_test_set(model_path, features, save_dir):
     if "patient_id" not in df.columns:
         df.reset_index(inplace=True)
 
-    df = df[features + ["SepsisLabel"]]
+    df = df[features + ["SepsisLabel_patient"]]
     X_test = df[features]
-    y_test = df["SepsisLabel"]
+    y_test = df["SepsisLabel_patient"]
 
     booster = xgb.Booster()
     booster.load_model(str(model_path))
     dtest = xgb.DMatrix(X_test)
     y_probs = booster.predict(dtest)
-    y_pred = (y_probs >= 0.3).astype(int)
+    y_pred = (y_probs >= 0.9405).astype(int)
 
     print(f"\n[TEST EVALUATION for model: {model_path.name}]")
     print("AUROC:", roc_auc_score(y_test, y_probs))
@@ -58,13 +64,15 @@ def evaluate_on_test_set(model_path, features, save_dir):
     print("Precision:", precision_score(y_test, y_pred))
 
     save_all_xgb_plots(y_true=y_test, y_pred=y_pred, y_probs=y_probs, save_dir=save_dir, booster=booster, feature_names=features)
+    threshold_csv_path = save_dir / "threshold_analysis.csv"
+    analyze_thresholds(y_true=y_test, y_probs=y_probs, save_path=threshold_csv_path)
 
 if __name__ == "__main__":
-    features = load_top_features(n=50)
+    features = load_top_features(n=20)
     root = find_project_root()
 
 
-    specified_train_name = "train_64"
+    specified_train_name = "train_84"
     train_dir = root / "models" / "model_A" / "train_outputs" / specified_train_name
     best_model_path = train_dir / "best_xgb_model.ubj"
 

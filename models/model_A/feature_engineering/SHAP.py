@@ -14,74 +14,73 @@ def find_project_root(marker=".gitignore"):
             return parent.resolve()
     raise FileNotFoundError("Project root marker not found.")
 
-def run_shap_on_data(parquet_file="train_balanced.parquet"):
+def run_shap_on_data(parquet_file="train_balanced.parquet", output_tag="default"):
     root = find_project_root()
     input_path = root / "dataset" / "XGBoost" / "feature_engineering" / parquet_file
     df = pd.read_parquet(input_path)
 
-    if not isinstance(df.index, pd.MultiIndex):
-        df.set_index(["patient_id", "ICULOS"], inplace=True)
 
-    df = df.groupby(level=0).filter(lambda x: len(x) >= 6)
+    if "patient_id" not in df.columns and "patient_id" in df.index.names:
+        df = df.reset_index()
 
-    exclude = ["SepsisLabel", "HospAdmTime", "patient_id"]
-    features = df.drop(columns=[col for col in exclude if col in df.columns], errors="ignore")
-    features = features.fillna(-1)
+    label_col = "SepsisLabel_patient" if "SepsisLabel_patient" in df.columns else "SepsisLabel"
 
-    labels = df["SepsisLabel"].astype(int)
-    
-    # Experimental model
+
+    exclude = ["patient_id", "ICULOS", label_col]
+    features = df.drop(columns=[col for col in exclude if col in df.columns], errors="ignore").fillna(-1)
+    labels = df[label_col].astype(int)
+
+
     model = xgb.XGBClassifier(n_estimators=400, max_depth=6, eval_metric="logloss")
     model.fit(features, labels)
-    
+
     y_pred_prob = model.predict_proba(features)[:, 1]
     y_pred_label = (y_pred_prob >= 0.5).astype(int)
-
-    recall = recall_score(labels, y_pred_label)
-    f1 = f1_score(labels, y_pred_label)
-    f2 = fbeta_score(labels, y_pred_label, beta=2)
-    auroc = roc_auc_score(labels, y_pred_prob)
-
     print(f"\nModel Evaluation:")
-    print(f"Recall: {recall:.4f}")
-    print(f"F1 Score: {f1:.4f}")
-    print(f"F2 Score: {f2:.4f}")
-    print(f"AUROC: {auroc:.4f}")
+    print(f"Recall: {recall_score(labels, y_pred_label):.4f}")
+    print(f"F1 Score: {f1_score(labels, y_pred_label):.4f}")
+    print(f"F2 Score: {fbeta_score(labels, y_pred_label, beta=2):.4f}")
+    print(f"AUROC: {roc_auc_score(labels, y_pred_prob):.4f}")
 
 
-    # SHAP
     explainer = shap.Explainer(model)
     shap_values = explainer(features)
 
-    output_dir = root / "models" /"model_A" /  "outputs"/ "shap"
+    output_dir = root / "models" / "model_A" / "outputs" / "shap"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # summary plot
-    plt.figure(figsize=(24, 24))
-    shap.summary_plot(shap_values, features, max_display=30, show=False)
-    plt.tight_layout()
-    plt.savefig(output_dir / "shap_summary_plot.png", dpi=300)
-    plt.close()
-    print(f"SHAP plots saved to: {output_dir}")
-    
-    sample_index = 100
-    csv_output = output_dir / f"shap_values_sample{sample_index}.csv"
-    
-    shap_matrix = np.abs(shap_values.values)
-    mean_abs_shap = shap_matrix.mean(axis=0)
-    feature_names = shap_values.feature_names
 
-    shap_importance = pd.DataFrame({
+    plot_path = output_dir / f"shap_summary_{output_tag}.png"
+    plt.figure(figsize=(12, 10))
+    shap.summary_plot(shap_values, features, max_display=20, show=False)
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=300)
+    plt.close()
+
+
+    shap_matrix = shap_values.values
+    mean_abs_shap = np.abs(shap_matrix).mean(axis=0)
+    feature_names = shap_values.feature_names
+    shap_df_raw = pd.DataFrame(shap_matrix, columns=feature_names)
+    shap_df_raw["label"] = labels.values
+
+    grouped = shap_df_raw.groupby("label").mean().T
+    grouped = grouped.rename(columns={0: "mean_shap_negative", 1: "mean_shap_positive"})
+    shap_df = pd.DataFrame({
         "feature": feature_names,
         "mean_abs_shap": mean_abs_shap
-    }).sort_values(by="mean_abs_shap", ascending=False)
+    })
+    shap_df = shap_df.set_index("feature").join(grouped).reset_index()
+    shap_df = shap_df.sort_values(by="mean_abs_shap", ascending=False)
 
-    top_path = output_dir / "top_features_by_shap.csv"
-    shap_importance.to_csv(top_path, index=False)
+    table_path = output_dir / f"shap_features_{output_tag}.csv"
+    shap_df.to_csv(table_path, index=False)
 
-    print(f"Top features saved to: {top_path}")
+    print(f"SHAP summary plot saved to: {plot_path}")
+    print(f"SHAP importance table saved to: {table_path}")
 
-    return shap_values, features, sample_index, csv_output
+    return shap_values, features, shap_df
+
 
 def export_single_shap_to_csv(shap_values, features, sample_index, output_path):
     row = shap_values[sample_index]

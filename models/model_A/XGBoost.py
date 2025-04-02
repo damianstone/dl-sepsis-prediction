@@ -2,11 +2,11 @@ import pandas as pd
 import numpy as np
 import xgboost as xgb
 from pathlib import Path
-from sklearn.metrics import (classification_report, roc_auc_score,f1_score, recall_score, precision_score)
-from sklearn.model_selection import StratifiedKFold
-import matplotlib.pyplot as plt
+from sklearn.metrics import (classification_report, roc_auc_score,f1_score, recall_score, precision_score,fbeta_score)
 from plots import save_all_xgb_plots
 from analyze_thresholds import analyze_thresholds
+import shutil
+
 
 
 
@@ -17,39 +17,38 @@ def find_project_root(marker=".gitignore"):
             return parent.resolve()
     raise FileNotFoundError("Project root marker not found.")
 
-def load_top_features(n=30):
+def load_top_features(n=20):
     root = find_project_root()
-    top_path = root / "models" / "model_A" / "outputs" / "shap" / "top_features_by_shap.csv"
-    top_features = pd.read_csv(top_path)["feature"].tolist()
+    shap_path = root / "models" / "model_A" / "outputs" / "shap" / "shap_features_engineered.csv"
+    shap_df = pd.read_csv(shap_path)
 
-    if "SOFA" not in top_features:
-        top_features.append("SOFA")
+    shap_df_sorted = shap_df.sort_values(by="mean_shap_positive", ascending=False)
+    top_features = shap_df_sorted["feature"].tolist()[:n]
 
-    return top_features[:n] + (["SOFA"] if "SOFA" not in top_features[:n] else [])
+    sofa_features = ["SOFA_mean_global", "SOFA_max_global", "SOFA_last_global"]
+    for sofa in sofa_features:
+        if sofa not in top_features:
+            top_features.append(sofa)
 
+    print("\n Selected Features Used for XGBoost:")
+    for f in top_features:
+        print(f" - {f}")
 
-def load_all_features():
-    root = find_project_root()
-    path = root / "dataset" / "XGBoost" / "feature_engineering" / "train_balanced.parquet"
-    df = pd.read_parquet(path)
+    return top_features
 
-    if not isinstance(df.index, pd.MultiIndex):
-        df.set_index(["patient_id", "ICULOS"], inplace=True)
-
-    exclude = ["SepsisLabel", "patient_id","HospAdmTime", "dataset", "Unit1", "Unit2"]
-    all_features = [col for col in df.columns if col not in exclude]
-    return all_features
 
 def load_data(features):
     root = find_project_root()
     data_path = root / "dataset" / "XGBoost" / "feature_engineering" / "train_balanced.parquet"
     df = pd.read_parquet(data_path)
     if not isinstance(df.index, pd.MultiIndex):
-        df.set_index(["patient_id", "ICULOS"], inplace=True)
+        df.set_index(["patient_id"], inplace=True)
 
     X = df[features].fillna(-1)
-    y = df["SepsisLabel"]
+    label_col = "SepsisLabel_patient" if "SepsisLabel_patient" in df.columns else "SepsisLabel"
+    y = df[label_col]
     return X, y
+
 
 
 def get_next_output_dir(base_dir):
@@ -63,21 +62,46 @@ def get_next_output_dir(base_dir):
     return output_dir
 
 def train_xgboost(X, y, params, n_splits=3):
-    from sklearn.metrics import fbeta_score
-    import shutil
 
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    patient_ids = X.index.get_level_values("patient_id")
+    patient_labels = pd.DataFrame({"pid": patient_ids, "label": y}).groupby("pid")["label"].max()
     root = find_project_root()
     output_base = get_next_output_dir(root / "models" / "model_A" / "train_outputs")
-
     fold_results = []
     fold_dirs = []
+    pos_ids = patient_labels[patient_labels == 1].index.to_numpy()
+    neg_ids = patient_labels[patient_labels == 0].index.to_numpy()
 
-    for fold, (train_idx, test_idx) in enumerate(skf.split(X, y), 1):
+    np.random.seed(42)
+    np.random.shuffle(pos_ids)
+    np.random.shuffle(neg_ids)
+    fold_pos = np.array_split(pos_ids, n_splits)
+    fold_neg = np.array_split(neg_ids, n_splits)
+
+    for fold in range(n_splits):
         print(f"\nFold {fold}")
 
-        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+        test_pos = fold_pos[fold]
+        test_neg = fold_neg[fold]
+        train_pos = np.concatenate([fold_pos[i] for i in range(n_splits) if i != fold])
+        train_neg_full = np.concatenate([fold_neg[i] for i in range(n_splits) if i != fold])
+        np.random.shuffle(train_neg_full)
+        train_neg = train_neg_full[:len(train_pos) * 4]
+        np.random.shuffle(test_neg)
+        test_neg = test_neg[:len(test_pos) * 4]
+
+        train_ids = np.concatenate([train_pos, train_neg])
+        test_ids = np.concatenate([test_pos, test_neg])
+
+        train_mask = patient_ids.isin(train_ids)
+        test_mask = patient_ids.isin(test_ids)
+
+        X_train, y_train = X[train_mask], y[train_mask]
+        X_test, y_test = X[test_mask], y[test_mask]
+        print(f"Fold {fold} - Train samples: {len(y_train)} (Pos: {y_train.sum()}, Neg: {len(y_train) - y_train.sum()})")
+        print(f"Fold {fold} - Test samples: {len(y_test)} (Pos: {y_test.sum()}, Neg: {len(y_test) - y_test.sum()})")
+        print(f"Fold {fold} - Positive rate in train: {y_train.mean():.3f}, test: {y_test.mean():.3f}")
+
 
         dtrain = xgb.DMatrix(X_train, label=y_train)
         dtest = xgb.DMatrix(X_test, label=y_test)
@@ -111,7 +135,7 @@ def train_xgboost(X, y, params, n_splits=3):
         #visualizations
         pd.DataFrame(classification_report(y_test, y_pred, output_dict=True)).T.to_csv(fold_dir / "report.csv")
 
-        model_path = fold_dir / "xgb_model.ubj "
+        model_path = fold_dir / "xgb_model.ubj"
         bst.save_model(str(model_path))
       
         save_all_xgb_plots(y_true=y_test,y_pred=y_pred,y_probs=y_probs,save_dir=fold_dir,booster=bst,feature_names=X.columns.tolist())
@@ -144,7 +168,7 @@ def train_xgboost(X, y, params, n_splits=3):
 
 
 def main():
-    features = load_top_features(n=50)
+    features = load_top_features(n=20)
     #features = load_all_features()
     X, y = load_data(features)
 
@@ -156,9 +180,8 @@ def main():
         "subsample": 0.8,
         "colsample_bytree": 0.8,
         "scale_pos_weight": 4,
-        "min_child_weight": 10,
-        "lambda": 5,
-        "alpha": 1
+        "lambda": 1,
+        "alpha": 0.35
     }
 
     train_xgboost(X, y, params=params)
