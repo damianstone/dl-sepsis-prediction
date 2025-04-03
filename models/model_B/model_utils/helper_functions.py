@@ -7,25 +7,74 @@ import numpy as np
 import matplotlib.pyplot as plt
 import yaml
 from pathlib import Path
-FEATURE_NAMES = ['HR', 'O2Sat', 'Temp', 'SBP', 'MAP', 'DBP', 'Resp', 'BaseExcess',
-                                'HCO3', 'FiO2', 'pH', 'PaCO2', 'SaO2', 'AST', 'BUN', 'Alkalinephos',
-                                'Calcium', 'Chloride', 'Creatinine', 'Bilirubin_direct', 'Glucose',
-                                'Lactate', 'Magnesium', 'Phosphate', 'Potassium', 'Bilirubin_total',
-                                'TroponinI', 'Hct', 'Hgb', 'PTT', 'WBC', 'Fibrinogen', 'Platelets',
-                                'Age', 'Gender', 'HospAdmTime', 'ICULOS', "SOFA"]
+
+FEATURE_NAMES = [
+    "HR",
+    "O2Sat",
+    "Temp",
+    "SBP",
+    "MAP",
+    "DBP",
+    "Resp",
+    "BaseExcess",
+    "HCO3",
+    "FiO2",
+    "pH",
+    "PaCO2",
+    "SaO2",
+    "AST",
+    "BUN",
+    "Alkalinephos",
+    "Calcium",
+    "Chloride",
+    "Creatinine",
+    "Bilirubin_direct",
+    "Glucose",
+    "Lactate",
+    "Magnesium",
+    "Phosphate",
+    "Potassium",
+    "Bilirubin_total",
+    "TroponinI",
+    "Hct",
+    "Hgb",
+    "PTT",
+    "WBC",
+    "Fibrinogen",
+    "Platelets",
+    "Age",
+    "Gender",
+    "HospAdmTime",
+    "ICULOS",
+    "SOFA",
+]
 
 
 def save_xperiment_csv(root, xperiment_name, df):
     save_path = f"{root}/models/model_B/results/{xperiment_name}"
     os.makedirs(save_path, exist_ok=True)
     df.to_csv(
-        f"{root}/models/model_B/results/{xperiment_name}/{xperiment_name}.csv", index=False)
+        f"{root}/models/model_B/results/{xperiment_name}/{xperiment_name}.csv",
+        index=False,
+    )
 
 
 def save_xperiment_yaml(root, config):
     xperiment_name = config["xperiment"]["name"]
     save_path = f"{root}/models/model_B/results/{xperiment_name}/xperiment.yml"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # Handle OmegaConf objects from Hydra
+    if hasattr(config, "_is_dict") or hasattr(config, "_is_config"):
+        try:
+            # Try to import OmegaConf if available
+            from omegaconf import OmegaConf
+
+            config = OmegaConf.to_container(config, resolve=True)
+        except ImportError:
+            # If OmegaConf is not available, try to convert to dict directly
+            config = dict(config)
+
     with open(save_path, "w") as file:
         yaml.dump(
             config,
@@ -61,4 +110,5 @@ def find_project_root(marker=".gitignore"):
         if (parent / marker).exists():
             return parent.resolve()
     raise FileNotFoundError(
-        f"Project root marker '{marker}' not found starting from {current}")
+        f"Project root marker '{marker}' not found starting from {current}"
+    )

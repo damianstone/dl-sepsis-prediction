@@ -3,7 +3,7 @@ import models.model_A.feature_engineering.get_dataset as model_A_prep_data
 import models.model_B.full_pipeline as model_B
 import hydra
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import os
 import logging
 import numpy as pd
@@ -27,7 +27,7 @@ def set_seed(seed: int):
 def main(cfg: DictConfig) -> None:
     """Main pipeline function with Hydra configuration."""
     # Print the configuration
-    log.info(f"Configuration: \n{cfg}")
+    log.info(f"Configuration: \n{OmegaConf.to_yaml(cfg)}")
 
     # Set random seed for reproducibility
     set_seed(cfg.random_seed)
@@ -46,9 +46,9 @@ def main(cfg: DictConfig) -> None:
         model_A.full_pipeline()
     elif cfg.model.type == "model_B":
         log.info(f"Running model_B (Neural Net) with configuration: {cfg.model}")
-        # Call model_B functions with the config
-        # model = model_B.YourFunction(**cfg.model)
-        model_B.full_pipeline()
+        # Convert DictConfig to a nested dictionary for compatibility
+        model_config = OmegaConf.to_container(cfg.model, resolve=True)
+        model_B.full_pipeline(model_config)
     else:
         raise ValueError(f"Unknown model type: {cfg.model.type}")
 

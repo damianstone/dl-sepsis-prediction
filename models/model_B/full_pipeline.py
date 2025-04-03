@@ -10,6 +10,11 @@ from torch import nn
 from pathlib import Path
 from torch.utils.data import DataLoader
 
+try:
+    from omegaconf import OmegaConf
+except ImportError:
+    OmegaConf = None
+
 from .preprocess import preprocess_data
 from .custom_dataset import SepsisPatientDataset, collate_fn
 from .architectures import TransformerClassifier, TransformerTimeSeries
@@ -118,6 +123,7 @@ def data_plots_and_metrics(
         raise RuntimeError("Failed to save experiment CSV") from e
 
     try:
+        # Save config as YAML - works for both traditional dict and Hydra OmegaConf objects
         save_xperiment_yaml(root, config)
     except Exception as e:
         raise RuntimeError("Failed to save experiment config") from e
@@ -136,7 +142,7 @@ def data_plots_and_metrics(
             y_probs,
             y_pred,
             model,
-            feature_names,
+            feature_names=feature_names,
         )
     except Exception as e:
         raise RuntimeError("Failed to save plots") from e
@@ -161,15 +167,22 @@ def get_model(model_to_use, config, in_dim, device):
     return model
 
 
-def full_pipeline():
+def full_pipeline(cfg=None):
     project_root = find_project_root()
     if project_root not in sys.path:
         sys.path.append(project_root)
-    if len(sys.argv) < 2:
-        print("Usage: python full_pipeline.py <config_name_file>")
-        sys.exit(1)
-    config_name_file = sys.argv[1]
-    config = get_config(project_root, config_name_file)
+
+    # Use Hydra config if provided, otherwise use legacy config loading
+    if cfg is not None:
+        config = cfg
+    else:
+        # Legacy config loading for backward compatibility
+        if len(sys.argv) < 2:
+            print("Usage: python full_pipeline.py <config_name_file>")
+            sys.exit(1)
+        config_name_file = sys.argv[1]
+        config = get_config(project_root, config_name_file)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # -------------------------------- DATA SPLIT --------------------------------
