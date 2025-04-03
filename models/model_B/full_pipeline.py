@@ -52,7 +52,9 @@ def save_model(xperiment_name, model):
     model_path = Path("./saved")
     model_path.mkdir(exist_ok=True)
     model_file = model_path / f"{xperiment_name}.pth"
-    torch.save(model.state_dict(), model_file)
+    # Move model to CPU before saving to ensure compatibility across different devices
+    model_state = model.state_dict()
+    torch.save(model_state, model_file)
 
 
 def print_imbalance_ratio(y, patient_ids, dataset_name):
@@ -149,6 +151,7 @@ def data_plots_and_metrics(
 
 
 def get_model(model_to_use, config, in_dim, device):
+    print("model_to_use", model_to_use)
     if model_to_use == "time_series":
         model = TransformerTimeSeries(
             input_dim=in_dim,
@@ -168,6 +171,7 @@ def get_model(model_to_use, config, in_dim, device):
 
 
 def full_pipeline(cfg=None):
+    print(f"Running model B")
     project_root = find_project_root()
     if project_root not in sys.path:
         sys.path.append(project_root)
@@ -183,9 +187,19 @@ def full_pipeline(cfg=None):
         config_name_file = sys.argv[1]
         config = get_config(project_root, config_name_file)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Device selection with M1 Mac support
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print("Using CUDA device")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = torch.device("mps")
+        print("Using Apple M1 MPS device")
+    else:
+        device = torch.device("cpu")
+        print("Using CPU device")
 
     # -------------------------------- DATA SPLIT --------------------------------
+    print("Preprocessing data")
     data_config = config["data"]
     data_splits = preprocess_data(**data_config)
 
@@ -233,6 +247,7 @@ def full_pipeline(cfg=None):
     )
 
     # -------------------------------- MODEL --------------------------------
+    print("Defining model")
     in_dim = X_train.shape[1]
     config["model"]["input_dimention"] = in_dim
 
@@ -242,7 +257,7 @@ def full_pipeline(cfg=None):
         in_dim=in_dim,
         device=device,
     )
-
+    print("Defining loss function")
     # NOTE: get pos_weight to balance the loss for imbalanced classes
     if config["training"]["use_post_weight"]:
         max_p = config["training"]["max_post_weight"]
@@ -256,6 +271,7 @@ def full_pipeline(cfg=None):
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["training"]["lr"])
 
     # -------------------------------- TRAINING LOOP --------------------------------
+    print("Training model")
     epoch_counter, loss_counter, acc_counter = training_loop(
         experiment_name=config["xperiment"]["name"],
         model=model,
@@ -268,6 +284,7 @@ def full_pipeline(cfg=None):
     )
 
     # -------------------------------- TESTING LOOP --------------------------------
+    print("Testing model")
     batch_size = config["testing"]["batch_size"]
     dataset = SepsisPatientDataset(
         X_test.values,
@@ -284,11 +301,18 @@ def full_pipeline(cfg=None):
     )
 
     # -------------------------------- METRICS AND PLOTS --------------------------------
+    print("Making plots and metrics")
 
     model_path = (
         f"{project_root}/models/model_B/saved/{config['xperiment']['name']}.pth"
     )
-    model.load_state_dict(torch.load(model_path))
+    # Load model with proper device mapping
+    if device.type == "cuda":
+        model.load_state_dict(torch.load(model_path))
+    else:
+        # For CPU or MPS (M1 Mac), use map_location
+        model.load_state_dict(torch.load(model_path, map_location=device))
+
     all_y_logits, all_y_probs, all_y_pred, all_y_test = testing_loop(
         model=model,
         test_loader=test_loader,

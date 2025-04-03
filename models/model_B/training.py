@@ -11,7 +11,9 @@ def save_model(xperiment_name, model):
     model_path = Path("./saved")
     model_path.mkdir(exist_ok=True)
     model_file = model_path / f"{xperiment_name}.pth"
-    torch.save(model.state_dict(), model_file)
+    # Move model to CPU before saving to ensure compatibility across different devices
+    model_state = model.state_dict()
+    torch.save(model_state, model_file)
 
 
 def print_validation_metrics(val_loss, val_acc, val_prec, val_rec):

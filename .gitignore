@@ -11,3 +11,4 @@ outputs**
 *.png
 *.ubj 
 /models/model_A/train_outputs
+/models/model_B/__pycache__
