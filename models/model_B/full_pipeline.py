@@ -154,6 +154,7 @@ def get_model(model_to_use, config, in_dim, device):
     print("GET MODEL FUNCTION")
     print("model_to_use", model_to_use)
     print("in_dim", in_dim)
+    print("device", device)
     print("config['model']['num_heads']", config["model"]["num_heads"])
     print("config['model']['d_model']", config["model"]["d_model"])
     print("config['model']['num_layers']", config["model"]["num_layers"])
