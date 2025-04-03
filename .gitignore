@@ -4,3 +4,8 @@ dataset/*.csv
 dataset/*.pth
 models/model_A/*.csv
 dataset/XGBoost/
+/.venv
+/models/model_A/__pycache__
+/models/model_A/feature_engineering/__pycache__
+/models/model_B/__pycache__
+/outputs
