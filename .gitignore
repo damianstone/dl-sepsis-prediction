@@ -3,3 +3,5 @@ venv-sepsis**
 dataset/*.csv
 dataset/*.pth
 models/model_A/*.csv
+dataset/big_imputed_sofa.parquet
+dataset/preprocessed_data.parquet

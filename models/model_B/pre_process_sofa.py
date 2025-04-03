@@ -68,6 +68,7 @@ def pre_process_sofa(input_file,output_file):
     exclude_columns = ["Unit1", "Unit2", "cluster_id", "dataset"]
     imputed_df.drop(columns=exclude_columns, errors='ignore', inplace=True)
     # NOTE: for now manually drop this nan values
+    # TODO: research about drop HospAdmTime
     imputed_df = imputed_df.dropna(subset=["HospAdmTime"])
 
     # Check for any remaining NaN values in the dataset; if found, return an error.
