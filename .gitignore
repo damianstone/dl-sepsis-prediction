@@ -1,6 +1,9 @@
 venv-sepsis**
+.venv**
 .DS_Store
 dataset/*.csv
 dataset/*.pth
 models/model_A/*.csv
 dataset/XGBoost/
+*.pyc
+outputs**

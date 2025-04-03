@@ -1,0 +1,8 @@
+name: fully_imputed
+data_path: "dataset/Fully_imputed_dataset.parquet"
+split_ratio: [0.7, 0.15, 0.15] # train, val, test
+
+preprocessing:
+  impute_missing: false # Already imputed
+  normalize: true
+  feature_selection: true

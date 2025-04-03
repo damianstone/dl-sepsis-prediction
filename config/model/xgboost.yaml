@@ -1,0 +1,11 @@
+name: xgboost
+type: model_A # Corresponds to the imports in full_pipeline.py
+
+# Model parameters
+params:
+  max_depth: 6
+  learning_rate: 0.1
+  n_estimators: 100
+  objective: "binary:logistic"
+  random_state: ${random_seed}
+  n_jobs: -1

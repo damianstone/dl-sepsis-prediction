@@ -1,0 +1,11 @@
+defaults:
+  - dataset: sofa
+  - model: xgboost
+  - training: default
+  - _self_
+
+experiment_name: "default_experiment"
+random_seed: 42
+
+# General pipeline settings
+output_dir: ${hydra:runtime.output_dir}

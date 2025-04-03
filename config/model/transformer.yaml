@@ -1,0 +1,8 @@
+name: transformer
+type: model_B # Corresponds to the imports in full_pipeline.py
+
+# Model parameters
+model_architecture: "baseline"
+hidden_dims: [128, 64, 32]
+dropout_rate: 0.2
+activation: "relu"

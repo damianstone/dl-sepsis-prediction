@@ -1,0 +1,9 @@
+name: sofa
+train_path: "dataset/small_imputed_sofa_train.parquet"
+val_path: "dataset/small_imputed_sofa_val.parquet"
+test_path: "dataset/small_imputed_sofa_test.parquet"
+
+preprocessing:
+  impute_missing: true
+  normalize: true
+  feature_selection: true

@@ -10,14 +10,14 @@ from torch import nn
 from pathlib import Path
 from torch.utils.data import DataLoader
 
-from preprocess import preprocess_data
-from custom_dataset import SepsisPatientDataset, collate_fn
-from architectures import TransformerClassifier, TransformerTimeSeries
-from training import training_loop
-from testing import testing_loop
-from model_utils.metrics import save_metrics
-from model_utils.plots import save_plots
-from model_utils.helper_functions import save_xperiment_csv, save_xperiment_yaml
+from .preprocess import preprocess_data
+from .custom_dataset import SepsisPatientDataset, collate_fn
+from .architectures import TransformerClassifier, TransformerTimeSeries
+from .training import training_loop
+from .testing import testing_loop
+from .model_utils.metrics import save_metrics
+from .model_utils.plots import save_plots
+from .model_utils.helper_functions import save_xperiment_csv, save_xperiment_yaml
 
 
 def find_project_root(marker=".gitignore"):
@@ -30,35 +30,33 @@ def find_project_root(marker=".gitignore"):
         if (parent / marker).exists():
             return parent.resolve()
     raise FileNotFoundError(
-        f"Project root marker '{marker}' not found starting from {current}")
+        f"Project root marker '{marker}' not found starting from {current}"
+    )
 
 
 def get_config(root, name_file):
     config_path = f"{root}/models/model_B/config/{name_file}"
     if not os.path.isfile(config_path):
         raise FileNotFoundError(f"Config file does not exist: {config_path}")
-    with open(config_path, 'r') as file:
+    with open(config_path, "r") as file:
         config = yaml.safe_load(file)
     return config
 
 
 def save_model(xperiment_name, model):
-    model_path = Path('./saved')
+    model_path = Path("./saved")
     model_path.mkdir(exist_ok=True)
     model_file = model_path / f"{xperiment_name}.pth"
     torch.save(model.state_dict(), model_file)
 
 
 def print_imbalance_ratio(y, patient_ids, dataset_name):
-    df = pd.DataFrame({
-        'patient_id': patient_ids,
-        'SepsisLabel': y
-    })
-    
-    patient_summary = df.groupby('patient_id')['SepsisLabel'].max()
+    df = pd.DataFrame({"patient_id": patient_ids, "SepsisLabel": y})
+
+    patient_summary = df.groupby("patient_id")["SepsisLabel"].max()
     counts = patient_summary.value_counts()
     total_patients = counts.sum()
-    
+
     print(f"Dataset: {dataset_name}")
     print("Patient-level balance statistics:")
     print("Total patients:", total_patients)
@@ -68,7 +66,8 @@ def print_imbalance_ratio(y, patient_ids, dataset_name):
     if len(counts) >= 2:
         imbalance_ratio = counts.max() / counts.min()
         print(f"Imbalance ratio (majority/minority): {imbalance_ratio:.2f}")
-    print("-"*50)
+    print("-" * 50)
+
 
 def get_pos_weight(ids, y, max_weight=5):
     train_df = pd.DataFrame({"patient_id": ids, "SepsisLabel": y})
@@ -95,22 +94,24 @@ def data_plots_and_metrics(
     loss_counter,
     acc_counter,
     model,
-    feature_names
+    feature_names,
 ):
     xperiment_name = config["xperiment"]["name"]
     all_y_logits = torch.cat(all_y_logits).numpy().flatten()
     all_y_probs = torch.cat(all_y_probs).numpy().flatten()
     all_y_pred = torch.cat(all_y_pred).numpy().flatten()
     all_y_test = torch.cat(all_y_test).numpy().astype(int)
-    df = pd.DataFrame({
-        'y_logits': all_y_logits,
-        'y_probs': all_y_probs,
-        'y_pred': all_y_pred,
-        'y_test': all_y_test
-    })
-    y_test = df['y_test'].values
-    y_probs = df['y_probs'].values
-    y_pred = df['y_pred'].values
+    df = pd.DataFrame(
+        {
+            "y_logits": all_y_logits,
+            "y_probs": all_y_probs,
+            "y_pred": all_y_pred,
+            "y_test": all_y_test,
+        }
+    )
+    y_test = df["y_test"].values
+    y_probs = df["y_probs"].values
+    y_pred = df["y_pred"].values
     try:
         save_xperiment_csv(root, xperiment_name, df)
     except Exception as e:
@@ -127,27 +128,35 @@ def data_plots_and_metrics(
         raise RuntimeError("Failed to save metrics") from e
 
     try:
-        save_plots(root, xperiment_name, loss_counter, y_test,
-                   y_probs, y_pred, model, feature_names)
+        save_plots(
+            root,
+            xperiment_name,
+            loss_counter,
+            y_test,
+            y_probs,
+            y_pred,
+            model,
+            feature_names,
+        )
     except Exception as e:
         raise RuntimeError("Failed to save plots") from e
 
 
 def get_model(model_to_use, config, in_dim, device):
-    if model_to_use == 'time_series':
+    if model_to_use == "time_series":
         model = TransformerTimeSeries(
             input_dim=in_dim,
             n_heads=config["model"]["num_heads"],
             d_model=config["model"]["d_model"],
             n_layers=config["model"]["num_layers"],
-            dropout=config["model"]["drop_out"]
+            dropout=config["model"]["drop_out"],
         ).to(device)
     else:
         model = TransformerClassifier(
             input_dim=in_dim,
             n_heads=config["model"]["num_heads"],
             drop_out=config["model"]["drop_out"],
-            num_layers=config["model"]["num_layers"]
+            num_layers=config["model"]["num_layers"],
         ).to(device)
     return model
 
@@ -187,27 +196,27 @@ def full_pipeline():
         X_train.values,
         y_train.values,
         patient_ids_train.values,
-        time_index=X_train.columns.get_loc("ICULOS")
+        time_index=X_train.columns.get_loc("ICULOS"),
     )
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        drop_last=True
+        drop_last=True,
     )
     val_dataset = SepsisPatientDataset(
         X_val.values,
         y_val.values,
         patient_ids_val.values,
-        time_index=X_val.columns.get_loc("ICULOS")
+        time_index=X_val.columns.get_loc("ICULOS"),
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        drop_last=True
+        drop_last=True,
     )
 
     # -------------------------------- MODEL --------------------------------
@@ -218,7 +227,7 @@ def full_pipeline():
         model_to_use=config["xperiment"]["model"],
         config=config,
         in_dim=in_dim,
-        device=device
+        device=device,
     )
 
     # NOTE: get pos_weight to balance the loss for imbalanced classes
@@ -251,26 +260,28 @@ def full_pipeline():
         X_test.values,
         y_test.values,
         patient_ids_test.values,
-        time_index=X_test.columns.get_loc("ICULOS")
+        time_index=X_test.columns.get_loc("ICULOS"),
     )
     test_loader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        drop_last=True
+        drop_last=True,
     )
 
     # -------------------------------- METRICS AND PLOTS --------------------------------
-    
-    model_path = f"{project_root}/models/model_B/saved/{config['xperiment']['name']}.pth"
+
+    model_path = (
+        f"{project_root}/models/model_B/saved/{config['xperiment']['name']}.pth"
+    )
     model.load_state_dict(torch.load(model_path))
     all_y_logits, all_y_probs, all_y_pred, all_y_test = testing_loop(
         model=model,
         test_loader=test_loader,
         loss_fn=loss_fn,
         device=device,
-        threshold=0.5
+        threshold=0.5,
     )
 
     data_plots_and_metrics(
@@ -284,9 +295,9 @@ def full_pipeline():
         loss_counter,
         acc_counter,
         model,
-        feature_names=X_train.columns.tolist()
+        feature_names=X_train.columns.tolist(),
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     full_pipeline()
