@@ -1,6 +1,6 @@
 defaults:
   - dataset: sofa
-  - model: xgboost
+  - model: transformer
   - training: default
   - _self_
 

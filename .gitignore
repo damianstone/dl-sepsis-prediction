@@ -7,3 +7,7 @@ models/model_A/*.csv
 dataset/XGBoost/
 *.pyc
 outputs**
+/models/model_A/outputs
+*.png
+*.ubj 
+/models/model_A/train_outputs
