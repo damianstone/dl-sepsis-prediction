@@ -21,7 +21,12 @@ def print_validation_metrics(val_loss, val_acc, val_prec, val_rec):
     print(f"Accuracy:   {val_acc*100:.2f}%")
     print(f"Precision:  {val_prec*100:.2f}%") 
     print(f"Recall:     {val_rec*100:.2f}%")
-    print(f"F1-Score:   {2 * (val_prec * val_rec) / (val_prec + val_rec)*100:.2f}%")
+    # Handle zero division for F1-Score
+    if val_prec + val_rec == 0:
+        f1_score = 0
+    else:
+        f1_score = 2 * (val_prec * val_rec) / (val_prec + val_rec)
+    print(f"F1-Score:   {f1_score*100:.2f}%")
     f_beta = (1 + 2**2) * (val_prec * val_rec) / (2**2 * val_prec + val_rec + 1e-8)
     print(f"F2-Score:   {f_beta*100:.2f}%")
 

@@ -1,14 +1,14 @@
 xperiment:
-  name: "08_time_series_transformer"
+  name: "10_time_series_transformer"
   model: "time_series"
 
 data:
-  data_file_name: "big_imputed_sofa"
+  data_file_name: "preprocessed_data"
   use_last_processed_data: true
   sampling: true
-  sampling_method: oversample
+  sampling_method: undersample
   sampling_minority_ratio: 0.3
-  train_sample_fraction: 1
+  train_sample_fraction: 0.3
   test_size: 0.2
   random_state: 42
 
