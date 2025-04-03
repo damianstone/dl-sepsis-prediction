@@ -1,1 +1,1 @@
-XGBoost method
+The dataset is prepared using the get_dataset script located in the feature_engineering folder. The model is then trained with the XGBoost script and evaluated on a fixed test set using test.py.
