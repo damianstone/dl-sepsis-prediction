@@ -5,3 +5,4 @@ dataset/*.pth
 models/model_A/*.csv
 dataset/big_imputed_sofa.parquet
 dataset/preprocessed_data.parquet
+dataset/pca_preprocessed_data.parquet
