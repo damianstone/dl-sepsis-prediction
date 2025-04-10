@@ -1,0 +1,28 @@
+xperiment:
+  name: 09_time_series_transformer
+  model: time_series
+data:
+  data_file_name: preprocessed_data
+  use_last_processed_data: false
+  sampling: true
+  sampling_method: undersample
+  sampling_minority_ratio: 0.3
+  train_sample_fraction: 0.3
+  test_size: 0.2
+  random_state: 42
+model:
+  d_model: 128
+  num_heads: 4
+  num_layers: 2
+  drop_out: 0.2
+  input_dimention: 61
+training:
+  batch_size: 32
+  use_post_weight: true
+  max_post_weight: 5
+  lr: 0.001
+  epochs: 100
+  weight: 2.33
+  post_weight: 2.3299999237060547
+testing:
+  batch_size: 32

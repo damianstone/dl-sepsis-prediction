@@ -27,7 +27,7 @@ def create_balanced_dataset(input_file="raw_combined_data.parquet", output_file=
     print(f"Number of negative patients: {len(negative_ids)}")
 
     np.random.seed(1)
-    sampled_negative_ids = np.random.choice(negative_ids, size=len(positive_ids)*4, replace=False)
+    sampled_negative_ids = np.random.choice(negative_ids, size=int(len(positive_ids) * (70 / 30)), replace=False)
     keep_ids = set(positive_ids).union(set(sampled_negative_ids))
     df_balanced = df.loc[df.index.get_level_values("patient_id").isin(keep_ids)]
 
@@ -35,8 +35,6 @@ def create_balanced_dataset(input_file="raw_combined_data.parquet", output_file=
     df_balanced.to_parquet(out_path)
     print(f"save to: {out_path}")
     
-
-    final_patient_ids = df_balanced.reset_index()["patient_id"].unique()
     final_label_map = df_balanced.reset_index().groupby("patient_id")["SepsisLabel"].max()
 
     final_positive = (final_label_map == 1).sum()
@@ -65,8 +63,8 @@ def split_balanced_dataset_maintain_ratio(input_file="after_feature_engineering.
 
     total_train = int(0.8 * (len(pos_ids) + len(neg_ids)))
     total_test = (len(pos_ids) + len(neg_ids)) - total_train
-    train_pos = int(total_train * 0.2)
-    test_pos = int(total_test * 0.2)
+    train_pos = int(total_train * 0.3)
+    test_pos = int(total_test * 0.3)
 
     train_neg = total_train - train_pos
     test_neg = total_test - test_pos

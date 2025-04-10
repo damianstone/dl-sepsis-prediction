@@ -3,9 +3,10 @@ venv-sepsis**
 dataset/*.csv
 dataset/*.pth
 models/model_A/*.csv
-dataset/XGBoost/
 /.venv
-/models/model_A/__pycache__
-/models/model_A/feature_engineering/__pycache__
-/models/model_B/__pycache__
-/outputs
+dataset/big_imputed_sofa.parquet
+dataset/preprocessed_data.parquet
+dataset/pca_preprocessed_data.parquet
+*/__pycache__/ 
+*/*/__pycache__/ 
+*/*/*/__pycache__/

@@ -6,7 +6,7 @@ from SHAP import run_shap_on_data
 
 
 def run_full_pipeline():
-    print("Step 1: Balancing data with 20% positives")
+    print("Step 1: Balancing data with 30% positives")
     create_balanced_dataset(input_file="raw_combined_data.parquet", output_file="balanced_dataset.parquet")
     print("Balanced dataset created\n")
 
