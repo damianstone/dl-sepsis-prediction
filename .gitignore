@@ -10,3 +10,5 @@ dataset/pca_preprocessed_data.parquet
 */__pycache__/ 
 */*/__pycache__/ 
 */*/*/__pycache__/
+*.pyc
+
