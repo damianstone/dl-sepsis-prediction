@@ -3,11 +3,12 @@ venv-sepsis**
 dataset/*.csv
 dataset/*.pth
 models/model_A/*.csv
+/.venv
 dataset/big_imputed_sofa.parquet
 dataset/preprocessed_data.parquet
 dataset/pca_preprocessed_data.parquet
-
-
 */__pycache__/ 
 */*/__pycache__/ 
-*/*/*/__pycache__/ 
+*/*/*/__pycache__/
+*.pyc
+
