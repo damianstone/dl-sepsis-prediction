@@ -109,7 +109,6 @@ def generate_multiwindow_features(df, feature_cols, window_size=6):
         row.update(compute_missingness_summary(group, feature_cols))
         row.update(aggregate_scores(group, suffix="global"))
 
-        # 6h
         window_idx = 1
         for start in range(0, int(max_time) + 1, window_size):
             window_df = group[(group["ICULOS"] >= start) & (group["ICULOS"] < start + window_size)]
@@ -130,7 +129,7 @@ def generate_multiwindow_features(df, feature_cols, window_size=6):
 
     return pd.DataFrame(patient_rows)
 
-def run_multiwindow_feature_engineering():
+def run_multiwindow_feature_engineering(compress=False):
     input_path = Path("dataset/XGBoost/feature_engineering/balanced_dataset_filtered.parquet")
     output_path = Path("dataset/XGBoost/feature_engineering/after_feature_engineering.parquet")
     preview_path = Path("dataset/XGBoost/feature_engineering/patient_preview.csv")
@@ -149,12 +148,47 @@ def run_multiwindow_feature_engineering():
 
     print(f"Top 20 physiological features selected from SHAP:\n{top_shap_features}")
 
-    df_feat = generate_multiwindow_features(df, top_shap_features, window_size=6)
-    df_feat.to_parquet(output_path, index=False)
-    df_feat.head(10).to_csv(preview_path, index=False)
+    if compress:
+        df_feat = generate_multiwindow_features(df, top_shap_features, window_size=6)
+        df_feat.to_parquet(output_path, index=False)
+        df_feat.head(10).to_csv(preview_path, index=False)
+        print(f"\nSaved patient-level multi-window features to: {output_path}")
+        print(f"Preview saved to: {preview_path}")
+    else:
+        preview_path = Path("dataset/patient_preview_timeseries.csv")
+        df = df.sort_values(['patient_id', 'ICULOS']).copy()
+        output_path = Path("dataset/XGBoost/feature_engineering/after_feature_engineering_timeseries.parquet")
+        df['SOFA'] = df.apply(calculate_sofa, axis=1)
+        df['NEWS'] = df.apply(calculate_news, axis=1)
+        df['qSOFA'] = df.apply(calculate_qsofa, axis=1)
+        patient_scores = []
+        for pid, group in df.groupby("patient_id"):
+            group = group.sort_values("ICULOS").copy()
+            scores = aggregate_scores(group, suffix="global")
+            for k, v in scores.items():
+                group[k] = v
+            group["SepsisLabel_patient"] = group["SepsisLabel"].max()
+            patient_scores.append(group)
 
-    print(f"\nSaved patient-level multi-window features to: {output_path}")
-    print(f"Preview saved to: {preview_path}")
+        df = pd.concat(patient_scores)
+        time_window_sizes = [3, 6, 12]
+        feature_dict = {}
+        for col in top_shap_features:
+            if col in df.columns:
+                for window in time_window_sizes:
+                    feature_dict[f'{col}_MA_{window}h'] = df.groupby('patient_id')[col].transform(
+                    lambda x: x.rolling(window, min_periods=1).mean())
+                    feature_dict[f'{col}_SD_{window}h'] = df.groupby('patient_id')[col].transform(
+                    lambda x: x.rolling(window, min_periods=1).std())
+                feature_dict[f'{col}_Delta'] = df.groupby('patient_id')[col].diff()
+
+        df = pd.concat([df, pd.DataFrame(feature_dict, index=df.index)], axis=1)
+
+        df.to_parquet(output_path, index=False)
+        df.head(40).to_csv(preview_path, index=False)
+        print(f"Saved time-series feature-enhanced data to: {output_path}")
+        print(f"Preview saved to: {preview_path}")
+
 
 
 if __name__ == "__main__":

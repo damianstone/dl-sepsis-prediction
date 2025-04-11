@@ -79,7 +79,7 @@ def train_xgboost(X, y, params, n_splits=3):
     fold_neg = np.array_split(neg_ids, n_splits)
 
     for fold in range(n_splits):
-        print(f"\nFold {fold}")
+        print(f"\nFold {fold:}")
 
         test_pos = fold_pos[fold]
         test_neg = fold_neg[fold]

@@ -54,7 +54,7 @@ def evaluate_on_test_set(model_path, features, save_dir):
     booster.load_model(str(model_path))
     dtest = xgb.DMatrix(X_test)
     y_probs = booster.predict(dtest)
-    y_pred = (y_probs >= 0.9405).astype(int)
+    y_pred = (y_probs >= 0.95).astype(int)
 
     print(f"\n[TEST EVALUATION for model: {model_path.name}]")
     print("AUROC:", roc_auc_score(y_test, y_probs))
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     root = find_project_root()
 
 
-    specified_train_name = "train_84"
+    specified_train_name = "train_85"
     train_dir = root / "models" / "model_A" / "train_outputs" / specified_train_name
     best_model_path = train_dir / "best_xgb_model.ubj"
 

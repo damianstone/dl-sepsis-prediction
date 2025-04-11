@@ -73,13 +73,11 @@ def plot_confusion_matrix(y_true, y_pred, class_names=["Negative", "Positive"]):
 
     cm_df = pd.DataFrame(cm, index=class_names, columns=class_names)
     fig, ax = plt.subplots(figsize=(10, 8))
-    sns.heatmap(cm_df, annot=annot, fmt='', cmap='Blues',
-                cbar=False, linewidths=0.5, linecolor='black')
+    sns.heatmap(cm_df, annot=annot, fmt='', cmap='Blues',cbar=False, linewidths=0.5, linecolor='black',annot_kws={"size": 16})
 
-    plt.ylabel('Actual')
-    plt.xlabel('Predicted')
-    plt.title('Confusion Matrix')
-
+    plt.title('Confusion Matrix', fontsize=24)
+    plt.xlabel('Predicted', fontsize=16)
+    plt.ylabel('Actual', fontsize=16)
     # Summary statistics
     accuracy = np.trace(cm) / float(np.sum(cm))
     precision = m.precision_score(y_true, y_pred, average='binary', zero_division=0)
@@ -92,7 +90,7 @@ def plot_confusion_matrix(y_true, y_pred, class_names=["Negative", "Positive"]):
     Recall = {recall:.2%}
     F2 Score = {f2:.2%}
     """
-    plt.gcf().text(-0.3, 0, stats_text, fontsize=9, va="bottom")
+    plt.gcf().text(-0.3, 0, stats_text, fontsize=24, va="bottom")
 
     return fig
 

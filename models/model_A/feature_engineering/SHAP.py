@@ -78,6 +78,22 @@ def run_shap_on_data(parquet_file="train_balanced.parquet", output_tag="default"
 
     print(f"SHAP summary plot saved to: {plot_path}")
     print(f"SHAP importance table saved to: {table_path}")
+    
+    top_positive_features = shap_df.sort_values(by="mean_shap_positive", ascending=False).head(20)["feature"].tolist()
+    top_positive_indices = [features.columns.get_loc(f) for f in top_positive_features]
+    shap_values_top_pos = shap.Explanation(
+    values=shap_values.values[:, top_positive_indices],
+    base_values=shap_values.base_values,
+    data=features.iloc[:, top_positive_indices],
+    feature_names=[features.columns[i] for i in top_positive_indices])
+
+    positive_plot_path = output_dir / f"top20_positive_shap_violin_{output_tag}.png"
+    plt.figure(figsize=(12, 10))
+    shap.summary_plot(shap_values_top_pos, features[top_positive_features], max_display=20, show=False)
+    plt.tight_layout()
+    plt.savefig(positive_plot_path, dpi=300)
+    plt.close()
+    print(f"Top 20 positive SHAP violin plot saved to: {positive_plot_path}")
 
     return shap_values, features, shap_df
 
