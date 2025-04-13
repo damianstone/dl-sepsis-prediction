@@ -16,5 +16,6 @@ pip install -r requirements.txt
 
 #### Setup Pre-commit hooks for linting
 ```
+pre-commit clean
 pre-commit install
 ```
