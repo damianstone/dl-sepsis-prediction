@@ -19,3 +19,8 @@ category_encoders
 numpy<2
 flake8
 flake8-black
+black
+autoflake
+isort
+docformatter
+pre-commit

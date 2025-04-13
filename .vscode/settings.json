@@ -1,5 +1,11 @@
 {
     "python.analysis.extraPaths": [
         "./models/model_B"
-    ]
+    ],
+    "python.formatting.provider": "black",
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+    },
+    "editor.formatOnSave": true,
+    "python.sortImports.args": ["--profile", "black"]
 }

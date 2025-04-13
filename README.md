@@ -13,3 +13,8 @@ source venv-sepsis/bin/activate
 ```python
 pip install -r requirements.txt
 ```
+
+#### Setup Pre-commit hooks for linting
+```
+pre-commit install
+```
