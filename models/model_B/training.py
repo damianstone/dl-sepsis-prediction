@@ -1,10 +1,8 @@
-import torch
-from torch import nn
-from tqdm import tqdm
-from torchmetrics import Accuracy, Precision, Recall
-from architectures import TransformerClassifier
-import numpy as np
 from pathlib import Path
+
+import torch
+from torchmetrics import Accuracy, Precision, Recall
+from tqdm import tqdm
 
 
 def find_project_root(marker=".gitignore"):
@@ -97,7 +95,6 @@ def training_loop(
     patience = 10  # if the validation doesn't improve after K (patience) checks
     best_loss = float("inf")
     epochs_without_improvement = 0
-    min_delta = 0.001
     min_epochs = 10
     threshold = 0.5
 

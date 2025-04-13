@@ -1,26 +1,26 @@
 import torch
-from torch import nn
-from tqdm import tqdm
 from torchmetrics import Accuracy
+from tqdm import tqdm
+
 
 def testing_loop(model, test_loader, loss_fn, device, threshold=0.3):
     test_loss, test_acc = 0, 0
     model.eval()
 
     # Initialize metrics
-    t_accuracy = Accuracy(task='binary').to(device)
+    t_accuracy = Accuracy(task="binary").to(device)
 
     # Store predictions and labels
     all_y_logits, all_y_probs, all_y_pred, all_y_test = [], [], [], []
 
     with torch.inference_mode():
         progress_bar = tqdm(test_loader, desc="Testing", leave=False)
-        
+
         for X_batch, y_batch, attention_mask in progress_bar:
             X_batch, y_batch, attention_mask = (
                 X_batch.to(device),
                 y_batch.to(device),
-                attention_mask.to(device)
+                attention_mask.to(device),
             )
 
             # Forward pass
@@ -50,6 +50,7 @@ def testing_loop(model, test_loader, loss_fn, device, threshold=0.3):
     print(f"Test Loss: {test_loss:.5f} | Test Accuracy: {test_acc:.2f}%")
 
     return all_y_logits, all_y_probs, all_y_pred, all_y_test
+
 
 # ---------------------- Main Execution ----------------------
 if __name__ == "__main__":

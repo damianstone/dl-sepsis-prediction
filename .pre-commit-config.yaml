@@ -1,22 +1,40 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
+      - id: check-added-large-files
 
   - repo: https://github.com/PyCQA/autoflake
-    rev: v2.2.1
+    rev: v2.3.1
     hooks:
       - id: autoflake
-        args: [--remove-all-unused-imports, --remove-unused-variables]
+        args:
+          [
+            "--remove-all-unused-imports",
+            "--remove-unused-variables",
+            "--in-place",
+            "--expand-star-imports",
+          ]
 
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
+  - repo: https://github.com/pre-commit/mirrors-isort
+    rev: v5.10.1
     hooks:
       - id: isort
+        args: ["--profile=black"]
 
   - repo: https://github.com/psf/black
-    rev: 24.3.0
+    rev: 25.1.0
     hooks:
       - id: black
+        args: ["."]
+        pass_filenames: false
+
+  # - repo: local
+  #   hooks:
+  #     - id: auto-add
+  #       name: Auto Add Fixed Files
+  #       entry: git add .
+  #       language: system
+  #       always_run: true

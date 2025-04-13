@@ -1,28 +1,20 @@
-import os
 import json
-import pandas as pd
-import seaborn as sns
-import numpy as np
-import matplotlib.pyplot as plt
+import os
+
 import sklearn.metrics as m
 
 
-def save_metrics(
-        root,
-        xperiment_name,
-        y_test,
-        y_probs,
-        y_pred):
+def save_metrics(root, xperiment_name, y_test, y_probs, y_pred):
     save_path = f"{root}/models/model_B/results/{xperiment_name}"
     os.makedirs(save_path, exist_ok=True)
 
     accuracy = m.accuracy_score(y_test, y_pred)
     balanced_accuracy = m.balanced_accuracy_score(y_test, y_pred)
-    precision = m.precision_score(y_test, y_pred, average='weighted', zero_division=0)
-    recall = m.recall_score(y_test, y_pred, average='weighted', zero_division=0)
+    precision = m.precision_score(y_test, y_pred, average="weighted", zero_division=0)
+    recall = m.recall_score(y_test, y_pred, average="weighted", zero_division=0)
     auc_score = m.roc_auc_score(y_test, y_probs)
-    f1 = m.f1_score(y_test, y_pred, average='weighted', zero_division=0)
-    f_beta = m.fbeta_score(y_test, y_pred, beta=2, average='weighted', zero_division=0)
+    f1 = m.f1_score(y_test, y_pred, average="weighted", zero_division=0)
+    f_beta = m.fbeta_score(y_test, y_pred, beta=2, average="weighted", zero_division=0)
     report = m.classification_report(y_test, y_pred, output_dict=True, zero_division=0)
 
     metrics = {

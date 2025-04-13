@@ -1,8 +1,10 @@
-import pandas as pd
-import numpy as np
 from pathlib import Path
 
-#medical
+import numpy as np
+import pandas as pd
+
+# medical
+
 
 def score_by_value(value, thresholds):
     for threshold, score in thresholds:
@@ -10,22 +12,34 @@ def score_by_value(value, thresholds):
             return score
     return 0
 
+
 def calculate_sofa(row):
     sofa = 0
     if row.get("MAP", 100) < 70:
         sofa += 1
-    sofa += score_by_value(row.get("Creatinine", 0), [(5, 4), (3.5, 3), (2, 2), (1.2, 1)])
-    sofa += score_by_value(row.get("Platelets", float("inf")), [(20, 4), (50, 3), (100, 2), (150, 1)])
-    sofa += score_by_value(row.get("Bilirubin_total", 0), [(12, 4), (6, 3), (2, 2), (1.2, 1)])
+    sofa += score_by_value(
+        row.get("Creatinine", 0), [(5, 4), (3.5, 3), (2, 2), (1.2, 1)]
+    )
+    sofa += score_by_value(
+        row.get("Platelets", float("inf")), [(20, 4), (50, 3), (100, 2), (150, 1)]
+    )
+    sofa += score_by_value(
+        row.get("Bilirubin_total", 0), [(12, 4), (6, 3), (2, 2), (1.2, 1)]
+    )
     if row.get("FiO2", 0) > 0 and pd.notna(row.get("SaO2", None)):
         pao2_fio2 = row["SaO2"] / row["FiO2"]
         sofa += score_by_value(pao2_fio2, [(100, 4), (200, 3), (300, 2), (400, 1)])
     return sofa
 
+
 def calculate_news(row):
     news = 0
-    news += score_by_value(row.get("HR", 0), [(131, 3), (130, 2), (110, 1), (90, 0), (50, 1), (40, 3)])
-    news += score_by_value(row.get("Resp", 0), [(24, 3), (21, 2), (11, 0), (9, 1), (8, 3)])
+    news += score_by_value(
+        row.get("HR", 0), [(131, 3), (130, 2), (110, 1), (90, 0), (50, 1), (40, 3)]
+    )
+    news += score_by_value(
+        row.get("Resp", 0), [(24, 3), (21, 2), (11, 0), (9, 1), (8, 3)]
+    )
     news += score_by_value(row.get("Temp", 0), [(39.1, 2), (38, 1), (36, 1), (35, 3)])
     sbp = row.get("SBP", row.get("MAP", 100))
     news += score_by_value(sbp, [(90, 3), (100, 2), (110, 1)])
@@ -33,6 +47,7 @@ def calculate_news(row):
     if row.get("FiO2", 0) > 0.21:
         news += 2
     return news
+
 
 def calculate_qsofa(row):
     qsofa = 0
@@ -58,6 +73,7 @@ def aggregate_window_features(df, cols, suffix):
         stats[f"{col}_missing_rate_{suffix}"] = is_missing.mean()
     return stats
 
+
 def aggregate_scores(df, suffix="global"):
     sofa_scores = df.apply(calculate_sofa, axis=1)
     news_scores = df.apply(calculate_news, axis=1)
@@ -66,14 +82,21 @@ def aggregate_scores(df, suffix="global"):
     return {
         f"SOFA_mean_{suffix}": sofa_scores.mean(),
         f"SOFA_max_{suffix}": sofa_scores.max(),
-        f"SOFA_last_{suffix}": sofa_scores.iloc[-1] if not sofa_scores.empty else np.nan,
+        f"SOFA_last_{suffix}": (
+            sofa_scores.iloc[-1] if not sofa_scores.empty else np.nan
+        ),
         f"NEWS_mean_{suffix}": news_scores.mean(),
         f"NEWS_max_{suffix}": news_scores.max(),
-        f"NEWS_last_{suffix}": news_scores.iloc[-1] if not news_scores.empty else np.nan,
+        f"NEWS_last_{suffix}": (
+            news_scores.iloc[-1] if not news_scores.empty else np.nan
+        ),
         f"qSOFA_mean_{suffix}": qsofa_scores.mean(),
         f"qSOFA_max_{suffix}": qsofa_scores.max(),
-        f"qSOFA_last_{suffix}": qsofa_scores.iloc[-1] if not qsofa_scores.empty else np.nan
+        f"qSOFA_last_{suffix}": (
+            qsofa_scores.iloc[-1] if not qsofa_scores.empty else np.nan
+        ),
     }
+
 
 def compute_missingness_summary(df, cols):
     summary = {}
@@ -92,9 +115,10 @@ def compute_missingness_summary(df, cols):
             else:
                 intervals.append(-1)
         valid_intervals = [v for v in intervals if v >= 0]
-        summary[f"{col}_missing_interval_mean_global"] = np.mean(valid_intervals) if valid_intervals else -1
+        summary[f"{col}_missing_interval_mean_global"] = (
+            np.mean(valid_intervals) if valid_intervals else -1
+        )
     return summary
-
 
 
 def generate_multiwindow_features(df, feature_cols, window_size=6):
@@ -111,11 +135,15 @@ def generate_multiwindow_features(df, feature_cols, window_size=6):
 
         window_idx = 1
         for start in range(0, int(max_time) + 1, window_size):
-            window_df = group[(group["ICULOS"] >= start) & (group["ICULOS"] < start + window_size)]
+            window_df = group[
+                (group["ICULOS"] >= start) & (group["ICULOS"] < start + window_size)
+            ]
             if window_df.shape[0] < 2:
                 continue
             suffix = f"6h{window_idx}"
-            row.update(aggregate_window_features(window_df, feature_cols, suffix=suffix))
+            row.update(
+                aggregate_window_features(window_df, feature_cols, suffix=suffix)
+            )
             window_idx += 1
 
         # Demographics
@@ -129,9 +157,14 @@ def generate_multiwindow_features(df, feature_cols, window_size=6):
 
     return pd.DataFrame(patient_rows)
 
+
 def run_multiwindow_feature_engineering(compress=False):
-    input_path = Path("dataset/XGBoost/feature_engineering/balanced_dataset_filtered.parquet")
-    output_path = Path("dataset/XGBoost/feature_engineering/after_feature_engineering.parquet")
+    input_path = Path(
+        "dataset/XGBoost/feature_engineering/balanced_dataset_filtered.parquet"
+    )
+    output_path = Path(
+        "dataset/XGBoost/feature_engineering/after_feature_engineering.parquet"
+    )
     preview_path = Path("dataset/XGBoost/feature_engineering/patient_preview.csv")
     shap_path = Path("models/model_A/outputs/shap/shap_features_filtered.csv")
 
@@ -156,11 +189,13 @@ def run_multiwindow_feature_engineering(compress=False):
         print(f"Preview saved to: {preview_path}")
     else:
         preview_path = Path("dataset/patient_preview_timeseries.csv")
-        df = df.sort_values(['patient_id', 'ICULOS']).copy()
-        output_path = Path("dataset/XGBoost/feature_engineering/after_feature_engineering_timeseries.parquet")
-        df['SOFA'] = df.apply(calculate_sofa, axis=1)
-        df['NEWS'] = df.apply(calculate_news, axis=1)
-        df['qSOFA'] = df.apply(calculate_qsofa, axis=1)
+        df = df.sort_values(["patient_id", "ICULOS"]).copy()
+        output_path = Path(
+            "dataset/XGBoost/feature_engineering/after_feature_engineering_timeseries.parquet"
+        )
+        df["SOFA"] = df.apply(calculate_sofa, axis=1)
+        df["NEWS"] = df.apply(calculate_news, axis=1)
+        df["qSOFA"] = df.apply(calculate_qsofa, axis=1)
         patient_scores = []
         for pid, group in df.groupby("patient_id"):
             group = group.sort_values("ICULOS").copy()
@@ -176,11 +211,13 @@ def run_multiwindow_feature_engineering(compress=False):
         for col in top_shap_features:
             if col in df.columns:
                 for window in time_window_sizes:
-                    feature_dict[f'{col}_MA_{window}h'] = df.groupby('patient_id')[col].transform(
-                    lambda x: x.rolling(window, min_periods=1).mean())
-                    feature_dict[f'{col}_SD_{window}h'] = df.groupby('patient_id')[col].transform(
-                    lambda x: x.rolling(window, min_periods=1).std())
-                feature_dict[f'{col}_Delta'] = df.groupby('patient_id')[col].diff()
+                    feature_dict[f"{col}_MA_{window}h"] = df.groupby("patient_id")[
+                        col
+                    ].transform(lambda x: x.rolling(window, min_periods=1).mean())
+                    feature_dict[f"{col}_SD_{window}h"] = df.groupby("patient_id")[
+                        col
+                    ].transform(lambda x: x.rolling(window, min_periods=1).std())
+                feature_dict[f"{col}_Delta"] = df.groupby("patient_id")[col].diff()
 
         df = pd.concat([df, pd.DataFrame(feature_dict, index=df.index)], axis=1)
 
@@ -188,7 +225,6 @@ def run_multiwindow_feature_engineering(compress=False):
         df.head(40).to_csv(preview_path, index=False)
         print(f"Saved time-series feature-enhanced data to: {output_path}")
         print(f"Preview saved to: {preview_path}")
-
 
 
 if __name__ == "__main__":

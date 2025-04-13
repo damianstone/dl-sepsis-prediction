@@ -1,11 +1,11 @@
 import os
 import sys
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
 from pathlib import Path
-from sklearn.utils import resample
+
+import pandas as pd
 from model_utils.helper_functions import display_balance_statistics
+from sklearn.model_selection import train_test_split
+from sklearn.utils import resample
 
 # NOTE: purpose is just to split the data
 
@@ -20,7 +20,8 @@ def find_project_root(marker=".gitignore"):
         if (parent / marker).exists():
             return parent.resolve()
     raise FileNotFoundError(
-        f"Project root marker '{marker}' not found starting from {current}")
+        f"Project root marker '{marker}' not found starting from {current}"
+    )
 
 
 def save_processed_data(root, train_df, val_df, test_df, file_name):
@@ -71,8 +72,7 @@ def over_under_sample(df, method="oversample", minority_ratio=0.3):
     oversampled patients appear as separate instances.
     """
     # Create a patient-level summary with one record per patient.
-    patient_df = df.groupby("patient_id")[
-        "SepsisLabel"].max().reset_index()
+    patient_df = df.groupby("patient_id")["SepsisLabel"].max().reset_index()
 
     # Count patients in each group.
     counts = patient_df["SepsisLabel"].value_counts()
@@ -80,28 +80,34 @@ def over_under_sample(df, method="oversample", minority_ratio=0.3):
     minority_class = counts.idxmin()
 
     # Split the patients into majority and minority groups.
-    majority_patients = patient_df[patient_df["SepsisLabel"]
-                                   == majority_class]
-    minority_patients = patient_df[patient_df["SepsisLabel"]
-                                   == minority_class]
+    majority_patients = patient_df[patient_df["SepsisLabel"] == majority_class]
+    minority_patients = patient_df[patient_df["SepsisLabel"] == minority_class]
 
     # Resample based on the chosen method.
     if method == "oversample":
         # Duplicate minority patients to reach desired ratio.
         n_desired_minority = int(
-            (minority_ratio * len(majority_patients)) / (1 - minority_ratio))
-        minority_upsampled = resample(minority_patients, replace=True,
-                                      n_samples=n_desired_minority, random_state=42)
-        balanced_patient_df = pd.concat(
-            [majority_patients, minority_upsampled])
+            (minority_ratio * len(majority_patients)) / (1 - minority_ratio)
+        )
+        minority_upsampled = resample(
+            minority_patients,
+            replace=True,
+            n_samples=n_desired_minority,
+            random_state=42,
+        )
+        balanced_patient_df = pd.concat([majority_patients, minority_upsampled])
     elif method == "undersample":
         # Remove some majority patients to reach desired ratio.
         n_desired_majority = int(
-            ((1 - minority_ratio) / minority_ratio) * len(minority_patients))
-        majority_downsampled = resample(majority_patients, replace=False,
-                                        n_samples=n_desired_majority, random_state=42)
-        balanced_patient_df = pd.concat(
-            [majority_downsampled, minority_patients])
+            ((1 - minority_ratio) / minority_ratio) * len(minority_patients)
+        )
+        majority_downsampled = resample(
+            majority_patients,
+            replace=False,
+            n_samples=n_desired_majority,
+            random_state=42,
+        )
+        balanced_patient_df = pd.concat([majority_downsampled, minority_patients])
     else:
         raise ValueError("Method must be 'oversample' or 'undersample'")
 
@@ -132,29 +138,29 @@ def over_under_sample(df, method="oversample", minority_ratio=0.3):
 
 
 def reduce_dataset(df, train_sample_fraction=0.05):
-    patient_df = df.groupby("patient_id")[
-        "SepsisLabel"].max().reset_index()
+    patient_df = df.groupby("patient_id")["SepsisLabel"].max().reset_index()
 
     # stratified sampling to get a subset of patient IDs
     sample_ids, _ = train_test_split(
         patient_df["patient_id"],
         train_size=train_sample_fraction,
         stratify=patient_df["SepsisLabel"],
-        random_state=42
+        random_state=42,
     )
     quick_train_df = df[df["patient_id"].isin(sample_ids)].copy()
     return quick_train_df
 
 
 def preprocess_data(
-        data_file_name,
-        sampling=True,
-        use_last_processed_data=False,
-        sampling_method="oversample",
-        sampling_minority_ratio=0.3,
-        train_sample_fraction=0.05,
-        test_size=0.2,
-        random_state=42):
+    data_file_name,
+    sampling=True,
+    use_last_processed_data=False,
+    sampling_method="oversample",
+    sampling_minority_ratio=0.3,
+    train_sample_fraction=0.05,
+    test_size=0.2,
+    random_state=42,
+):
 
     project_root = find_project_root()
     print("Project root:", project_root)
@@ -180,7 +186,7 @@ def preprocess_data(
         patient_labels.index,
         test_size=test_size,
         random_state=random_state,
-        stratify=patient_labels  # Stratify by patient-level labels
+        stratify=patient_labels,  # Stratify by patient-level labels
     )
 
     train_val_df = df[df["patient_id"].isin(train_val_patients)]
@@ -188,39 +194,31 @@ def preprocess_data(
 
     if train_sample_fraction < 1.0:
         train_val_df = reduce_dataset(
-            df=train_val_df,
-            train_sample_fraction=train_sample_fraction
+            df=train_val_df, train_sample_fraction=train_sample_fraction
         )
 
     train_patients, val_patients = train_test_split(
         train_val_patients,
         test_size=0.125,
         random_state=42,
-        stratify=patient_labels[train_val_patients]
+        stratify=patient_labels[train_val_patients],
     )
-        
+
     train_df = train_val_df[train_val_df["patient_id"].isin(train_patients)]
     val_df = train_val_df[train_val_df["patient_id"].isin(val_patients)]
 
     # Then balance both sets separately to ensure exact same balance
     if sampling:
         train_df = over_under_sample(
-            df=train_df,
-            method=sampling_method,
-            minority_ratio=sampling_minority_ratio
+            df=train_df, method=sampling_method, minority_ratio=sampling_minority_ratio
         )
         val_df = over_under_sample(
-            df=val_df,
-            method=sampling_method,
-            minority_ratio=sampling_minority_ratio
+            df=val_df, method=sampling_method, minority_ratio=sampling_minority_ratio
         )
 
     save_processed_data(
-        project_root,
-        train_df,
-        val_df,
-        test_df,
-        file_name="small_imputed_sofa")
+        project_root, train_df, val_df, test_df, file_name="small_imputed_sofa"
+    )
 
     print("Processed data saved")
 
@@ -240,9 +238,10 @@ def preprocess_data(
     return data_splits
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     data_splits = preprocess_data(
-        use_last_processed_data=False, data_file_name="big_imputed_sofa")
+        use_last_processed_data=False, data_file_name="big_imputed_sofa"
+    )
     X_train = data_splits["X_train"]
     y_train = data_splits["y_train"]
     patient_ids_train = data_splits["patient_ids_train"]

@@ -1,12 +1,9 @@
 import numpy as np
 import pandas as pd
-from sklearn.metrics import confusion_matrix, precision_score, recall_score, fbeta_score
+from sklearn.metrics import confusion_matrix, fbeta_score, precision_score, recall_score
 
-def analyze_thresholds(
-    y_true,
-    y_probs,
-    save_path="threshold_analysis.csv"
-):
+
+def analyze_thresholds(y_true, y_probs, save_path="threshold_analysis.csv"):
     thresholds = np.linspace(0.01, 0.99, 100)
     results = []
 
@@ -22,16 +19,18 @@ def analyze_thresholds(
         tp_fn = tp + fn
 
         if recall >= 0.5 and precision >= 0.5:
-            results.append({
-                "threshold": round(thresh, 4),
-                "recall": round(recall, 4),
-                "precision": round(precision, 4),
-                "f2": round(f2, 4),
-                "TN(%)": f"{tn / tn_fp:.2%}" if tn_fp else "N/A",
-                "FP(%)": f"{fp / tn_fp:.2%}" if tn_fp else "N/A",
-                "FN(%)": f"{fn / tp_fn:.2%}" if tp_fn else "N/A",
-                "TP(%)": f"{tp / tp_fn:.2%}" if tp_fn else "N/A",
-            })
+            results.append(
+                {
+                    "threshold": round(thresh, 4),
+                    "recall": round(recall, 4),
+                    "precision": round(precision, 4),
+                    "f2": round(f2, 4),
+                    "TN(%)": f"{tn / tn_fp:.2%}" if tn_fp else "N/A",
+                    "FP(%)": f"{fp / tn_fp:.2%}" if tn_fp else "N/A",
+                    "FN(%)": f"{fn / tp_fn:.2%}" if tp_fn else "N/A",
+                    "TP(%)": f"{tp / tp_fn:.2%}" if tp_fn else "N/A",
+                }
+            )
 
     df = pd.DataFrame(results)
     df.to_csv(save_path, index=False)
