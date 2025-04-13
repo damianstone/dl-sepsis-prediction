@@ -7,8 +7,23 @@ import numpy as np
 from pathlib import Path
 
 
+def find_project_root(marker=".gitignore"):
+    """
+    walk up from the current working directory until a directory containing the
+    specified marker (e.g., .gitignore) is found.
+    """
+    current = Path.cwd()
+    for parent in [current] + list(current.parents):
+        if (parent / marker).exists():
+            return parent.resolve()
+    raise FileNotFoundError(
+        f"Project root marker '{marker}' not found starting from {current}"
+    )
+
+
 def save_model(xperiment_name, model):
-    model_path = Path('./saved')
+    project_root = find_project_root()
+    model_path = Path(f"{project_root}/models/model_B/saved/")
     model_path.mkdir(exist_ok=True)
     model_file = model_path / f"{xperiment_name}.pth"
     torch.save(model.state_dict(), model_file)
@@ -19,7 +34,7 @@ def print_validation_metrics(val_loss, val_acc, val_prec, val_rec):
     print(f"{'='*40}")
     print(f"Loss:       {val_loss:.2f}")
     print(f"Accuracy:   {val_acc*100:.2f}%")
-    print(f"Precision:  {val_prec*100:.2f}%") 
+    print(f"Precision:  {val_prec*100:.2f}%")
     print(f"Recall:     {val_rec*100:.2f}%")
     # Handle zero division for F1-Score
     if val_prec + val_rec == 0:
@@ -30,19 +45,20 @@ def print_validation_metrics(val_loss, val_acc, val_prec, val_rec):
     f_beta = (1 + 2**2) * (val_prec * val_rec) / (2**2 * val_prec + val_rec + 1e-8)
     print(f"F2-Score:   {f_beta*100:.2f}%")
 
+
 def validation_loop(model, val_loader, loss_fn, device, threshold):
     model.eval()
     val_loss, val_acc, val_prec, val_rec = 0, 0, 0, 0
-    t_accuracy = Accuracy(task='binary').to(device)
-    t_precision = Precision(task='binary').to(device)
-    t_recall = Recall(task='binary').to(device)
+    t_accuracy = Accuracy(task="binary").to(device)
+    t_precision = Precision(task="binary").to(device)
+    t_recall = Recall(task="binary").to(device)
 
     with torch.no_grad():
         for X_batch, y_batch, attention_mask in val_loader:
             X_batch, y_batch, attention_mask = (
                 X_batch.to(device),
                 y_batch.to(device),
-                attention_mask.to(device)
+                attention_mask.to(device),
             )
 
             y_logits = model(X_batch, mask=attention_mask)
@@ -50,7 +66,7 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
             y_preds = (y_probs >= threshold).float()
 
             loss = loss_fn(y_logits.squeeze(), y_batch.float())
-            
+
             acc = t_accuracy(y_preds.squeeze(), y_batch.float())
             prec = t_precision(y_preds.squeeze(), y_batch.float())
             rec = t_recall(y_preds.squeeze(), y_batch.float())
@@ -65,26 +81,21 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
         val_loss / n_batches,
         val_acc / n_batches,
         val_prec / n_batches,
-        val_rec / n_batches
+        val_rec / n_batches,
     )
     return val_loss, val_acc, val_prec, val_rec
 
+
 def training_loop(
-        experiment_name,
-        model,
-        train_loader,
-        val_loader,
-        optimizer,
-        loss_fn,
-        epochs,
-        device):
+    experiment_name, model, train_loader, val_loader, optimizer, loss_fn, epochs, device
+):
     epoch_counter, loss_counter, acc_counter = [], [], []
-    t_accuracy = Accuracy(task='binary').to(device)
-    t_precision = Precision(task='binary').to(device)
-    t_recall = Recall(task='binary').to(device)
+    t_accuracy = Accuracy(task="binary").to(device)
+    t_precision = Precision(task="binary").to(device)
+    t_recall = Recall(task="binary").to(device)
 
     patience = 10  # if the validation doesn't improve after K (patience) checks
-    best_loss = float('inf')
+    best_loss = float("inf")
     epochs_without_improvement = 0
     min_delta = 0.001
     min_epochs = 10
@@ -100,14 +111,14 @@ def training_loop(
             X_batch, y_batch, attention_mask = (
                 X_batch.to(device),
                 y_batch.to(device),
-                attention_mask.to(device)
+                attention_mask.to(device),
             )
 
             # Forward pass
             y_logits = model(X_batch, mask=attention_mask)
             y_probs = torch.sigmoid(y_logits)
             y_preds = (y_probs >= threshold).float()
-            
+
             # compute loss
             loss = loss_fn(y_logits.squeeze(), y_batch.float())
 
@@ -130,7 +141,13 @@ def training_loop(
             epoch_rec += rec.item()
 
             progress_bar.set_postfix(
-                {"Loss": loss.item(), "Acc": acc.item(), "Prec": prec.item(), "Rec": rec.item()})
+                {
+                    "Loss": loss.item(),
+                    "Acc": acc.item(),
+                    "Prec": prec.item(),
+                    "Rec": rec.item(),
+                }
+            )
 
         epoch_loss /= len(train_loader)
         epoch_acc /= len(train_loader)
@@ -140,11 +157,14 @@ def training_loop(
         loss_counter.append(epoch_loss)
         acc_counter.append(epoch_acc)
 
-        print(f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc:.2f}% | Precision: {epoch_prec:.2f}% | Recall: {epoch_rec:.2f}%")
+        print(
+            f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc:.2f}% | Precision: {epoch_prec:.2f}% | Recall: {epoch_rec:.2f}%"
+        )
 
         if val_loader is not None and epoch % 2 == 0:
             val_loss, val_acc, val_prec, val_rec = validation_loop(
-                model, val_loader, loss_fn, device, threshold)
+                model, val_loader, loss_fn, device, threshold
+            )
             print_validation_metrics(val_loss, val_acc, val_prec, val_rec)
             if epoch >= min_epochs:
                 if val_loss < best_loss:
@@ -164,7 +184,6 @@ def training_loop(
 if __name__ == "__main__":
     print("not implemented")
     # train(model, train_loader, optimizer, loss_fn, epochs, device, threshold_update_n_batches)
-
 
 
 """
