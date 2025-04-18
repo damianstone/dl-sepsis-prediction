@@ -15,7 +15,14 @@ pip install -r requirements.txt
 ```
 
 #### Setup Pre-commit hooks for linting
+
 ```
 pre-commit clean
 pre-commit install
 ```
+
+### Datasets (after feature engineering)
+
+1. Full imbalanced
+2. Downsampled 70/30
+3. Oversampled 70/30

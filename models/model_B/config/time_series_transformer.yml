@@ -1,9 +1,9 @@
 xperiment:
-  name: "10_time_series_transformer"
-  model: "time_series"
+  name: '10_time_series_transformer'
+  model: 'time_series'
 
 data:
-  data_file_name: "preprocessed_data"
+  data_file_name: 'preprocessed_data'
   use_last_processed_data: true
   sampling: true
   sampling_method: undersample

@@ -1,11 +1,15 @@
 ## Pre-processed dataset
-* input dataset: fully imputed dataset
-* total columns: 63
-* columns dropped:
+
+- input dataset: fully imputed dataset
+- total columns: 63
+- columns dropped:
+
 ```bash
 ["Unit1", "Unit2", "cluster_id", "dataset", "HospAdmTime"]
 ```
-* new columns added:
+
+- new columns added:
+
 ```bash
 ['SOFA',
  'NEWS',
@@ -32,4 +36,5 @@
  'Platelets_MA_12h',
  'Platelets_SD_12h']
 ```
-* forward + backward fill to handle nan values for the new columns added
+
+- forward + backward fill to handle nan values for the new columns added
