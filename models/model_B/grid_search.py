@@ -44,7 +44,6 @@ from final_dataset_scripts.dataset_loader import (
     load_train_data,
     load_val_data,
 )
-from final_dataset_scripts.dataset_loader import types as dataset_types
 
 # Fixed random seed for reproducibility
 RANDOM_STATE = 42
@@ -170,7 +169,7 @@ class GridSearchModel:
         self.acc_counter = res["acc_counter"]
         self.model = res["model"]
 
-        _, _, _, _, y_pred, y_true = validation_loop(
+        _, _, _, _, _, y_pred, y_true = validation_loop(
             self.model,
             self.val_loader,
             self.loss_fn,
@@ -305,8 +304,8 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
 
     num_heads = 4
     drop_out = 0.1
-    for d_model in [128, 256]:
-        for num_layers in [2, 4]:
+    for d_model in [128]:
+        for num_layers in [2]:
             iterations += 1
             print(
                 f"Running grid search: {iterations}/{total_iterations} " f"iterations"
@@ -350,7 +349,7 @@ def pipeline():
     val_data = get_data(config, "val")
     test_data = get_data(config, "test")
     best_models = {}
-    for dataset_type in dataset_types:
+    for dataset_type in ["undersampled"]:
         print(f"Running grid search for {dataset_type}")
         config_new = copy.deepcopy(config)
         config_new["dataset_type"] = dataset_type
