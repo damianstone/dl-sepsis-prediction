@@ -83,7 +83,7 @@ def setup_base_config():
             "batch_size": 512,
             "use_post_weight": True,
             "max_post_weight": 5,
-            "lr": 0.0016,
+            "lr": 0.0004,
             "epochs": 1000,
         },
         "testing": {
@@ -168,7 +168,6 @@ class GridSearchModel:
         self.epoch_counter = res["epoch_counter"]
         self.loss_counter = res["loss_counter"]
         self.acc_counter = res["acc_counter"]
-        self.best_loss = res["best_loss"]
         self.model = res["model"]
 
         _, _, _, _, y_pred, y_true = validation_loop(
@@ -302,7 +301,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     """Run hyperparameter grid search over specified dimensions and return the best model."""
     best_model = None
     iterations = 0
-    total_iterations = 3 * 3 * 3 * 3
+    total_iterations = 4
 
     num_heads = 4
     drop_out = 0.1
