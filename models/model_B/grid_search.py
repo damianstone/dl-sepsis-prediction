@@ -38,7 +38,7 @@ def setup_base_config():
         },
         "testing": {
             "batch_size": 32,
-            "threshold": 0.3,
+            "threshold": 0.5,
             "device": "mps",
         },
     }
@@ -74,7 +74,8 @@ class GridSearchModel:
     def __init__(self, config, device, train_data, val_data, in_dim, model_name):
         self.config = config
         self.device = device
-        self.train_loader = train_data.loader
+        self.train_data = train_data
+        self.val_data = val_data
         self.val_loader = val_data.loader
         self.model = get_model(
             model_to_use=config["xperiment"]["model"],
@@ -93,8 +94,8 @@ class GridSearchModel:
         res = training_loop(
             self.model_name,
             self.model,
-            self.train_loader,
-            self.val_loader,
+            self.train_data.loader,
+            self.val_data.loader,
             self.optimizer,
             self.loss_fn,
             self.config["training"]["epochs"],
@@ -209,6 +210,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     for d_model in [64, 128, 256]:
         for num_heads in [2, 4, 8]:
             if d_model % num_heads != 0:
+                iterations += 3 * 3
                 continue
             for num_layers in [1, 2, 3]:
                 for drop_out in [0.1, 0.2, 0.3]:
@@ -217,7 +219,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
                         f"Running grid search: {iterations} / {total_iterations} iterations"
                     )
                     model_name = f"{config['dataset_type']}_{iterations}"
-                    config_new = config.copy()
+                    config_new = config.deepcopy()
                     config_new["model"] = {
                         "d_model": d_model,
                         "num_heads": num_heads,
@@ -251,7 +253,7 @@ def pipeline():
     best_models = {}
     for dataset_type in datasets:
         print(f"Running grid search for {dataset_type}")
-        config_new = config.copy()
+        config_new = config.deepcopy()
         config_new["dataset_type"] = dataset_type
 
         train_data = get_data(config_new, "train")
