@@ -27,11 +27,17 @@ import torch
 # Import local modules directly
 from custom_dataset import SepsisPatientDataset, collate_fn
 from full_pipeline import data_plots_and_metrics, get_model, get_pos_weight
-from sklearn.metrics import fbeta_score
 from testing import testing_loop
 from torch import nn
 from torch.utils.data import DataLoader
-from training import delete_model, save_model, training_loop, validation_loop
+from training import (
+    delete_model,
+    get_f1_score,
+    get_f2_score,
+    save_model,
+    training_loop,
+    validation_loop,
+)
 
 # Import from final_dataset_scripts
 from final_dataset_scripts.dataset_loader import (
@@ -101,19 +107,6 @@ def get_loss_fn(config, train_data, device):
     return nn.BCEWithLogitsLoss()
 
 
-def get_f2_score(y_pred, y_true):
-    """Compute the F2-score given predictions and true labels.
-
-    Args:
-        y_pred (array-like): Predicted binary labels.
-        y_true (array-like): True binary labels.
-
-    Returns:
-        float: F2-score.
-    """
-    return fbeta_score(y_true, y_pred, beta=2, zero_division=0)
-
-
 # ============================================================================
 # GridSearchModel Class
 # ============================================================================
@@ -134,6 +127,7 @@ class GridSearchModel:
             device=device,
         )
         self.f2_score = 0
+        self.f1_score = 0
         self.model_name = config["xperiment"]["name"]
         self.loss_fn = get_loss_fn(config, train_data, device)
         self.optimizer = torch.optim.AdamW(
@@ -166,6 +160,8 @@ class GridSearchModel:
             self.config["testing"]["threshold"],
         )
         self.f2_score = get_f2_score(y_pred, y_true)
+        # Also compute F1-score
+        self.f1_score = get_f1_score(y_pred, y_true)
 
     def test_model(self, test_loader):
         """Test the trained model on test data and generate plots and metrics."""

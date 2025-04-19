@@ -1,8 +1,34 @@
 from pathlib import Path
 
 import torch
-from torchmetrics import Accuracy, Precision, Recall
+from sklearn.metrics import accuracy_score, fbeta_score, precision_score, recall_score
 from tqdm import tqdm
+
+
+def get_f2_score(y_pred, y_true):
+    """Compute the F2-score given predictions and true labels.
+
+    Args:
+        y_pred (array-like): Predicted binary labels.
+        y_true (array-like): True binary labels.
+
+    Returns:
+        float: F2-score.
+    """
+    return fbeta_score(y_true, y_pred, beta=2, zero_division=0)
+
+
+def get_f1_score(y_pred, y_true):
+    """Compute the F1-score given predictions and true labels.
+
+    Args:
+        y_pred (array-like): Predicted binary labels.
+        y_true (array-like): True binary labels.
+
+    Returns:
+        float: F1-score.
+    """
+    return fbeta_score(y_true, y_pred, beta=1, zero_division=0)
 
 
 def find_project_root(marker=".gitignore"):
@@ -42,29 +68,24 @@ def delete_model(xperiment_name):
     model_file.unlink()
 
 
-def print_validation_metrics(val_loss, val_acc, val_prec, val_rec):
+def print_validation_metrics(
+    val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true
+):
     print("\nValidation Metrics:")
     print(f"{'='*40}")
     print(f"Loss:       {val_loss:.2f}")
     print(f"Accuracy:   {val_acc*100:.2f}%")
     print(f"Precision:  {val_prec*100:.2f}%")
     print(f"Recall:     {val_rec*100:.2f}%")
-    # Handle zero division for F1-Score
-    if val_prec + val_rec == 0:
-        f1_score = 0
-    else:
-        f1_score = 2 * (val_prec * val_rec) / (val_prec + val_rec)
-    print(f"F1-Score:   {f1_score*100:.2f}%")
-    f_beta = (1 + 2**2) * (val_prec * val_rec) / (2**2 * val_prec + val_rec + 1e-8)
-    print(f"F2-Score:   {f_beta*100:.2f}%")
+    val_f1 = get_f1_score(full_y_pred, full_y_true)
+    val_f2 = get_f2_score(full_y_pred, full_y_true)
+    print(f"F1-Score:   {val_f1*100:.2f}%")
+    print(f"F2-Score:   {val_f2*100:.2f}%")
 
 
 def validation_loop(model, val_loader, loss_fn, device, threshold):
     model.eval()
-    val_loss, val_acc, val_prec, val_rec = 0, 0, 0, 0
-    t_accuracy = Accuracy(task="binary").to(device)
-    t_precision = Precision(task="binary").to(device)
-    t_recall = Recall(task="binary").to(device)
+    val_loss = 0.0
 
     full_y_pred, full_y_true = [], []
     with torch.no_grad():
@@ -81,29 +102,21 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
 
             loss = loss_fn(y_logits.squeeze(), y_batch.float())
 
-            acc = t_accuracy(y_preds.squeeze(), y_batch.float())
-            prec = t_precision(y_preds.squeeze(), y_batch.float())
-            rec = t_recall(y_preds.squeeze(), y_batch.float())
-
             full_y_pred.append(y_preds.squeeze().cpu())
             full_y_true.append(y_batch.float().cpu())
 
             val_loss += loss.item()
-            val_acc += acc.item()
-            val_prec += prec.item()
-            val_rec += rec.item()
 
     n_batches = len(val_loader)
-    val_loss, val_acc, val_prec, val_rec = (
-        val_loss / n_batches,
-        val_acc / n_batches,
-        val_prec / n_batches,
-        val_rec / n_batches,
-    )
+    val_loss = val_loss / n_batches
 
     # Concatenate tensors and convert to numpy arrays
     full_y_pred = torch.cat(full_y_pred).numpy()
     full_y_true = torch.cat(full_y_true).numpy()
+    # Compute metrics on the full validation set
+    val_acc = accuracy_score(full_y_true, full_y_pred)
+    val_prec = precision_score(full_y_true, full_y_pred, zero_division=0)
+    val_rec = recall_score(full_y_true, full_y_pred, zero_division=0)
 
     return val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true
 
@@ -112,9 +125,6 @@ def training_loop(
     experiment_name, model, train_loader, val_loader, optimizer, loss_fn, epochs, device
 ):
     epoch_counter, loss_counter, acc_counter = [], [], []
-    t_accuracy = Accuracy(task="binary").to(device)
-    t_precision = Precision(task="binary").to(device)
-    t_recall = Recall(task="binary").to(device)
 
     patience = 10  # if the validation doesn't improve after K (patience) checks
     best_loss = float("inf")
@@ -124,7 +134,8 @@ def training_loop(
 
     for epoch in range(epochs):
         model.train()
-        epoch_loss, epoch_acc, epoch_prec, epoch_rec = 0, 0, 0, 0
+        epoch_loss = 0.0
+        epoch_y_pred, epoch_y_true = [], []
         batch_count = 0
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False)
 
@@ -143,11 +154,6 @@ def training_loop(
             # compute loss
             loss = loss_fn(y_logits.squeeze(), y_batch.float())
 
-            # metrics
-            acc = t_accuracy(y_preds.squeeze(), y_batch.float())
-            prec = t_precision(y_preds.squeeze(), y_batch.float())
-            rec = t_recall(y_preds.squeeze(), y_batch.float())
-
             # Backpropagation
             optimizer.zero_grad()
             loss.backward()
@@ -155,38 +161,34 @@ def training_loop(
 
             batch_count += 1
 
-            # update epoch metrics
+            # update epoch metrics and store predictions
             epoch_loss += loss.item()
-            epoch_acc += acc.item()
-            epoch_prec += prec.item()
-            epoch_rec += rec.item()
+            epoch_y_pred.append(y_preds.squeeze().cpu())
+            epoch_y_true.append(y_batch.float().cpu())
 
-            progress_bar.set_postfix(
-                {
-                    "Loss": loss.item(),
-                    "Acc": acc.item(),
-                    "Prec": prec.item(),
-                    "Rec": rec.item(),
-                }
-            )
+            progress_bar.set_postfix({"Loss": loss.item()})
 
         epoch_loss /= len(train_loader)
-        epoch_acc /= len(train_loader)
-        epoch_prec /= len(train_loader)
-        epoch_rec /= len(train_loader)
+        epoch_y_pred = torch.cat(epoch_y_pred).numpy()
+        epoch_y_true = torch.cat(epoch_y_true).numpy()
+        epoch_acc = accuracy_score(epoch_y_true, epoch_y_pred)
+        epoch_prec = precision_score(epoch_y_true, epoch_y_pred, zero_division=0)
+        epoch_rec = recall_score(epoch_y_true, epoch_y_pred, zero_division=0)
         epoch_counter.append(epoch + 1)
         loss_counter.append(epoch_loss)
         acc_counter.append(epoch_acc)
 
         print(
-            f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc:.2f}% | Precision: {epoch_prec:.2f}% | Recall: {epoch_rec:.2f}%"
+            f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc*100:.2f}% | Precision: {epoch_prec*100:.2f}% | Recall: {epoch_rec*100:.2f}%"
         )
 
         if val_loader is not None and epoch % 2 == 0:
             val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true = (
                 validation_loop(model, val_loader, loss_fn, device, threshold)
             )
-            print_validation_metrics(val_loss, val_acc, val_prec, val_rec)
+            print_validation_metrics(
+                val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true
+            )
             if epoch >= min_epochs:
                 if val_loss < best_loss:
                     best_loss = val_loss
