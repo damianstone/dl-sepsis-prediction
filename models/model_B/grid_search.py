@@ -111,7 +111,7 @@ def get_f2_score(y_pred, y_true):
     Returns:
         float: F2-score.
     """
-    return fbeta_score(y_true, y_pred, beta=2)
+    return fbeta_score(y_true, y_pred, beta=2, zero_division=0)
 
 
 # ============================================================================
