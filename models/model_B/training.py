@@ -85,8 +85,8 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
             prec = t_precision(y_preds.squeeze(), y_batch.float())
             rec = t_recall(y_preds.squeeze(), y_batch.float())
 
-            full_y_pred.append(y_preds.squeeze())
-            full_y_true.append(y_batch.float())
+            full_y_pred.append(y_preds.squeeze().cpu())
+            full_y_true.append(y_batch.float().cpu())
 
             val_loss += loss.item()
             val_acc += acc.item()
@@ -100,6 +100,11 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
         val_prec / n_batches,
         val_rec / n_batches,
     )
+
+    # Concatenate tensors and convert to numpy arrays
+    full_y_pred = torch.cat(full_y_pred).numpy()
+    full_y_true = torch.cat(full_y_true).numpy()
+
     return val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true
 
 
