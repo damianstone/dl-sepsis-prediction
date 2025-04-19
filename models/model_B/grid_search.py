@@ -81,14 +81,14 @@ def setup_base_config():
             "model": "time_series",
         },
         "training": {
-            "batch_size": 32,
+            "batch_size": 512,
             "use_post_weight": True,
             "max_post_weight": 5,
-            "lr": 0.001,
+            "lr": 0.016,
             "epochs": 1000,
         },
         "testing": {
-            "batch_size": 32,
+            "batch_size": 512,
             "threshold": 0.5,
         },
     }
@@ -305,41 +305,35 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     iterations = 0
     total_iterations = 3 * 3 * 3 * 3
 
-    for d_model in [64, 128, 256]:
-        for num_heads in [2, 4, 8]:
-            if d_model % num_heads != 0:
-                iterations += 3 * 3
-                continue
-            for num_layers in [1, 2, 4]:
-                for drop_out in [0.1, 0.2, 0.3]:
-                    iterations += 1
-                    print(
-                        f"Running grid search: {iterations}/{total_iterations} "
-                        f"iterations"
-                    )
-                    experiment_name = f"{config['dataset_type']}_{iterations}"
-                    config_new = copy.deepcopy(config)
-                    config_new["xperiment"]["name"] = experiment_name
-                    config_new["model"] = {
-                        "d_model": d_model,
-                        "num_heads": num_heads,
-                        "num_layers": num_layers,
-                        "drop_out": drop_out,
-                        "input_dimension": in_dim,
-                    }
+    num_heads = 4
+    drop_out = 0.1
+    for d_model in [128, 256]:
+        for num_layers in [2, 4]:
+            iterations += 1
+            print(
+                f"Running grid search: {iterations}/{total_iterations} " f"iterations"
+            )
+            experiment_name = f"{config['dataset_type']}_{iterations}"
+            config_new = copy.deepcopy(config)
+            config_new["xperiment"]["name"] = experiment_name
+            config_new["model"] = {
+                "d_model": d_model,
+                "num_heads": num_heads,
+                "num_layers": num_layers,
+                "drop_out": drop_out,
+                "input_dimension": in_dim,
+            }
 
-                    model = GridSearchModel(
-                        config_new, device, train_data, val_data, in_dim
-                    )
-                    model.train_and_evaluate()
+            model = GridSearchModel(config_new, device, train_data, val_data, in_dim)
+            model.train_and_evaluate()
 
-                    if best_model is None or model.f2_score > best_model.f2_score:
-                        print(f"New best model found: {model.f2_score}")
-                        if best_model:
-                            best_model.delete()
+            if best_model is None or model.f2_score > best_model.f2_score:
+                print(f"New best model found: {model.f2_score}")
+                if best_model:
+                    best_model.delete()
 
-                        best_model = model
-                        best_model.save()
+                best_model = model
+                best_model.save()
 
     if best_model is None:
         raise ValueError("No best model found")
