@@ -12,7 +12,8 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 from custom_dataset import SepsisPatientDataset, collate_fn
-from full_pipeline import get_model, get_pos_weight
+from full_pipeline import data_plots_and_metrics, get_model, get_pos_weight
+from testing import testing_loop
 from training import delete_model, save_model, training_loop, validation_loop
 
 from final_dataset_scripts.dataset_loader import (
@@ -113,6 +114,29 @@ class GridSearchModel:
             self.config["testing"]["threshold"],
         )
         self.f2_score = get_f2_score(y_pred, y_true)
+
+    def test_model(self, test_loader):
+        all_y_logits, all_y_probs, all_y_pred, all_y_test = testing_loop(
+            model=self.model,
+            test_loader=test_loader,
+            loss_fn=self.loss_fn,
+            device=self.device,
+            threshold=0.5,
+        )
+
+        data_plots_and_metrics(
+            project_root,
+            self.config,
+            all_y_logits,
+            all_y_probs,
+            all_y_pred,
+            all_y_test,
+            self.epoch_counter,
+            self.loss_counter,
+            self.acc_counter,
+            self.model,
+            feature_names=self.train_data.X.columns.tolist(),
+        )
 
     def delete(self):
         delete_model(self.model_name)
@@ -222,7 +246,7 @@ def pipeline():
     config = setup_base_config()
     device = setup_device()
     val_data = get_data(config, "val")
-
+    test_data = get_data(config, "test")
     datasets = ["imbalanced", "oversampled", "downsampled"]
     best_models = {}
     for dataset_type in datasets:
@@ -234,6 +258,11 @@ def pipeline():
         best_model = run_grid_search(
             config_new, device, train_data, val_data, train_data.X.shape[1]
         )
+        best_model.test_model(test_data.loader)
         best_models[dataset_type] = best_model
 
     return best_models
+
+
+if __name__ == "__main__":
+    pipeline()
