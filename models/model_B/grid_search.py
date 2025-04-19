@@ -33,19 +33,18 @@ from training import (
     validation_loop,
 )
 
-from final_dataset_scripts.dataset_loader import (
-    load_test_data,
-    load_train_data,
-    load_val_data,
-)
-from final_dataset_scripts.dataset_loader import types as dataset_types
-
 # Set up project path
 file_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(file_dir, "../.."))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
+from final_dataset_scripts.dataset_loader import (
+    load_test_data,
+    load_train_data,
+    load_val_data,
+)
+from final_dataset_scripts.dataset_loader import types as dataset_types
 
 # Fixed random seed for reproducibility
 RANDOM_STATE = 42
