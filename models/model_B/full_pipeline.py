@@ -251,7 +251,7 @@ def full_pipeline():
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["training"]["lr"])
 
     # -------------------------------- TRAINING LOOP --------------------------------
-    epoch_counter, loss_counter, acc_counter = training_loop(
+    res = training_loop(
         experiment_name=config["xperiment"]["name"],
         model=model,
         train_loader=train_loader,
@@ -261,6 +261,9 @@ def full_pipeline():
         epochs=config["training"]["epochs"],
         device=device,
     )
+    epoch_counter = res["epoch_counter"]
+    loss_counter = res["loss_counter"]
+    acc_counter = res["acc_counter"]
 
     # -------------------------------- TESTING LOOP --------------------------------
     batch_size = config["testing"]["batch_size"]

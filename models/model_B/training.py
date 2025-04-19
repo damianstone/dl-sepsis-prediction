@@ -27,6 +27,21 @@ def save_model(xperiment_name, model):
     torch.save(model.state_dict(), model_file)
 
 
+def load_model(xperiment_name, model):
+    project_root = find_project_root()
+    model_path = Path(f"{project_root}/models/model_B/saved/")
+    model_file = model_path / f"{xperiment_name}.pth"
+    model.load_state_dict(torch.load(model_file))
+    return model
+
+
+def delete_model(xperiment_name):
+    project_root = find_project_root()
+    model_path = Path(f"{project_root}/models/model_B/saved/")
+    model_file = model_path / f"{xperiment_name}.pth"
+    model_file.unlink()
+
+
 def print_validation_metrics(val_loss, val_acc, val_prec, val_rec):
     print("\nValidation Metrics:")
     print(f"{'='*40}")
@@ -51,6 +66,7 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
     t_precision = Precision(task="binary").to(device)
     t_recall = Recall(task="binary").to(device)
 
+    full_y_pred, full_y_true = [], []
     with torch.no_grad():
         for X_batch, y_batch, attention_mask in val_loader:
             X_batch, y_batch, attention_mask = (
@@ -69,6 +85,9 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
             prec = t_precision(y_preds.squeeze(), y_batch.float())
             rec = t_recall(y_preds.squeeze(), y_batch.float())
 
+            full_y_pred.append(y_preds.squeeze().cpu())
+            full_y_true.append(y_batch.float().cpu())
+
             val_loss += loss.item()
             val_acc += acc.item()
             val_prec += prec.item()
@@ -81,7 +100,12 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
         val_prec / n_batches,
         val_rec / n_batches,
     )
-    return val_loss, val_acc, val_prec, val_rec
+
+    # Concatenate tensors and convert to numpy arrays
+    full_y_pred = torch.cat(full_y_pred).numpy()
+    full_y_true = torch.cat(full_y_true).numpy()
+
+    return val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true
 
 
 def training_loop(
@@ -159,8 +183,8 @@ def training_loop(
         )
 
         if val_loader is not None and epoch % 2 == 0:
-            val_loss, val_acc, val_prec, val_rec = validation_loop(
-                model, val_loader, loss_fn, device, threshold
+            val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true = (
+                validation_loop(model, val_loader, loss_fn, device, threshold)
             )
             print_validation_metrics(val_loss, val_acc, val_prec, val_rec)
             if epoch >= min_epochs:
@@ -173,8 +197,15 @@ def training_loop(
                     if epochs_without_improvement >= patience:
                         print("early stopping triggered")
                         break
-
-    return epoch_counter, loss_counter, acc_counter
+    model = load_model(experiment_name, model)
+    res = {
+        "epoch_counter": epoch_counter,
+        "loss_counter": loss_counter,
+        "acc_counter": acc_counter,
+        "best_loss": best_loss,
+        "model": model,
+    }
+    return res
 
 
 # ---------------------- Main Execution ----------------------
