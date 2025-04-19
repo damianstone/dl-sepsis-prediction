@@ -84,7 +84,7 @@ def setup_base_config():
             "batch_size": 512,
             "use_post_weight": True,
             "max_post_weight": 5,
-            "lr": 0.016,
+            "lr": 0.0016,
             "epochs": 1000,
         },
         "testing": {
