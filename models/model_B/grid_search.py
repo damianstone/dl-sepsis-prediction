@@ -275,7 +275,6 @@ def get_data(config, type):
         batch_size=config["testing" if type == "test" else "training"]["batch_size"],
         shuffle=True,
         collate_fn=collate_fn,
-        drop_last=True,
     )
 
     return DataWrapper.from_map(
@@ -304,7 +303,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     """Run hyperparameter grid search over specified dimensions and return the best model."""
     best_model = None
     iterations = 0
-    total_iterations = 4 * 3 * 3 * 3
+    total_iterations = 3 * 3 * 3 * 3
 
     for d_model in [64, 128, 256]:
         for num_heads in [2, 4, 8]:
