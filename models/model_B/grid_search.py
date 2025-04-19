@@ -1,3 +1,17 @@
+"""
+Grid Search Script for Sepsis Prediction
+
+This script performs a hyperparameter grid search for a time series transformer model to predict sepsis onset. It includes:
+  - Configuration setup
+  - Device setup
+  - Loss and metric functions
+  - GridSearchModel and DataWrapper classes
+  - Grid search execution and pipeline orchestration
+
+Usage:
+    python grid_search.py
+"""
+
 import copy
 import os
 import sys
@@ -25,9 +39,15 @@ from final_dataset_scripts.dataset_loader import (
     load_train_data,
     load_val_data,
 )
+from final_dataset_scripts.dataset_loader import types as dataset_types
+
+# ============================================================================
+# Configuration and Utility Functions
+# ============================================================================
 
 
 def setup_base_config():
+    """Set up the base configuration for experiments including model name, training, and testing parameters."""
     return {
         "xperiment": {
             "name": "time_series_transformer_grid_search",
@@ -49,6 +69,7 @@ def setup_base_config():
 
 
 def setup_device():
+    """Determine and return the available device (MPS, CUDA, or CPU) for PyTorch computations."""
     device_type = (
         "mps"
         if torch.backends.mps.is_available()
@@ -59,6 +80,16 @@ def setup_device():
 
 
 def get_loss_fn(config, train_data, device):
+    """Get the binary cross entropy loss function, optionally applying a positive class weight.
+
+    Args:
+        config (dict): Configuration dictionary with training settings.
+        train_data (DataWrapper): Training data wrapper.
+        device (torch.device): Device for computing pos_weight.
+
+    Returns:
+        torch.nn.Module: Loss function with optional pos_weight.
+    """
     if config["training"]["use_post_weight"]:
         _, pos_weight = get_pos_weight(
             train_data.patient_ids,
@@ -71,11 +102,26 @@ def get_loss_fn(config, train_data, device):
 
 
 def get_f2_score(y_pred, y_true):
+    """Compute the F2-score given predictions and true labels.
+
+    Args:
+        y_pred (array-like): Predicted binary labels.
+        y_true (array-like): True binary labels.
+
+    Returns:
+        float: F2-score.
+    """
     return fbeta_score(y_true, y_pred, beta=2)
 
 
+# ============================================================================
+# GridSearchModel Class
+# ============================================================================
+
+
 class GridSearchModel:
-    def __init__(self, config, device, train_data, val_data, in_dim, model_name):
+    def __init__(self, config, device, train_data, val_data, in_dim):
+        """Initialize the grid search model with configuration, device, and data."""
         self.config = config
         self.device = device
         self.train_data = train_data
@@ -88,13 +134,14 @@ class GridSearchModel:
             device=device,
         )
         self.f2_score = 0
-        self.model_name = model_name
+        self.model_name = config["xperiment"]["name"]
         self.loss_fn = get_loss_fn(config, train_data, device)
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=config["training"]["lr"]
         )
 
     def train_and_evaluate(self):
+        """Train the model and evaluate on validation data, storing performance metrics."""
         res = training_loop(
             self.model_name,
             self.model,
@@ -121,6 +168,7 @@ class GridSearchModel:
         self.f2_score = get_f2_score(y_pred, y_true)
 
     def test_model(self, test_loader):
+        """Test the trained model on test data and generate plots and metrics."""
         all_y_logits, all_y_probs, all_y_pred, all_y_test = testing_loop(
             model=self.model,
             test_loader=test_loader,
@@ -144,13 +192,22 @@ class GridSearchModel:
         )
 
     def delete(self):
+        """Delete saved model files associated with this experiment."""
         delete_model(self.model_name)
 
     def save(self):
+        """Save the current model state with the experiment name."""
         save_model(self.model_name, self.model)
 
 
+# ============================================================================
+# DataWrapper Class
+# ============================================================================
+
+
 class DataWrapper:
+    """Wrapper for dataset components including features, labels, patient IDs, and DataLoader."""
+
     def __init__(self, X, y, patient_ids, dataset, loader):
         self.X = X
         self.y = y
@@ -160,12 +217,27 @@ class DataWrapper:
 
     @staticmethod
     def from_map(map):
+        """Create a DataWrapper instance from a mapping containing X, y, patient_ids, dataset, and loader."""
         return DataWrapper(
             map["X"], map["y"], map["patient_ids"], map["dataset"], map["loader"]
         )
 
 
+# ============================================================================
+# Data Loading Function
+# ============================================================================
+
+
 def get_data(config, type):
+    """Load and wrap train, val, or test data based on the config and dataset type.
+
+    Args:
+        config (dict): Configuration dict including batch sizes and dataset type.
+        type (str): One of 'train', 'val', or 'test'.
+
+    Returns:
+        DataWrapper: Wrapped data with DataLoader.
+    """
     if type == "train":
         data = load_train_data(config["dataset_type"])
     elif type == "val":
@@ -201,12 +273,19 @@ def get_data(config, type):
     )
 
 
+# ============================================================================
+# Grid Search Execution Functions
+# ============================================================================
+
+
 def save_best_models(best_models):
+    """Save all models in the best_models dictionary."""
     for best_model in best_models.values():
         best_model.save()
 
 
 def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchModel:
+    """Run hyperparameter grid search over specified dimensions and return the best model."""
     best_model = None
     iterations = 0
     total_iterations = 4 * 3 * 3 * 3
@@ -223,8 +302,9 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
                         f"Running grid search: {iterations}/{total_iterations} "
                         f"iterations"
                     )
-                    model_name = f"{config['dataset_type']}_{iterations}"
+                    experiment_name = f"{config['dataset_type']}_{iterations}"
                     config_new = copy.deepcopy(config)
+                    config_new["xperiment"]["name"] = experiment_name
                     config_new["model"] = {
                         "d_model": d_model,
                         "num_heads": num_heads,
@@ -234,13 +314,15 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
                     }
 
                     model = GridSearchModel(
-                        config_new, device, train_data, val_data, in_dim, model_name
+                        config_new, device, train_data, val_data, in_dim
                     )
                     model.train_and_evaluate()
 
                     if best_model is None or model.f2_score > best_model.f2_score:
+                        print(f"New best model found: {model.f2_score}")
                         if best_model:
                             best_model.delete()
+
                         best_model = model
                         best_model.save()
 
@@ -249,14 +331,19 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     return best_model
 
 
+# ============================================================================
+# Main Pipeline
+# ============================================================================
+
+
 def pipeline():
+    """Orchestrate the entire workflow: data loading, grid search per dataset type, testing, and returning best models."""
     config = setup_base_config()
     device = setup_device()
     val_data = get_data(config, "val")
     test_data = get_data(config, "test")
-    datasets = ["no_sampling", "oversampling", "undersampling"]
     best_models = {}
-    for dataset_type in datasets:
+    for dataset_type in dataset_types:
         print(f"Running grid search for {dataset_type}")
         config_new = copy.deepcopy(config)
         config_new["dataset_type"] = dataset_type
