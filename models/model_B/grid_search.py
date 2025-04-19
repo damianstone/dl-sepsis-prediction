@@ -231,7 +231,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
                     )
                     model.train_and_evaluate()
 
-                    if best_model is None or model.f2_score < best_model.f2_score:
+                    if best_model is None or model.f2_score > best_model.f2_score:
                         if best_model:
                             best_model.delete()
                         best_model = model
