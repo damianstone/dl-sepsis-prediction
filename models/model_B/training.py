@@ -27,6 +27,14 @@ def save_model(xperiment_name, model):
     torch.save(model.state_dict(), model_file)
 
 
+def load_model(xperiment_name, model):
+    project_root = find_project_root()
+    model_path = Path(f"{project_root}/models/model_B/saved/")
+    model_file = model_path / f"{xperiment_name}.pth"
+    model.load_state_dict(torch.load(model_file))
+    return model
+
+
 def print_validation_metrics(val_loss, val_acc, val_prec, val_rec):
     print("\nValidation Metrics:")
     print(f"{'='*40}")
@@ -173,8 +181,15 @@ def training_loop(
                     if epochs_without_improvement >= patience:
                         print("early stopping triggered")
                         break
-
-    return epoch_counter, loss_counter, acc_counter
+    model = load_model(experiment_name, model)
+    res = {
+        "epoch_counter": epoch_counter,
+        "loss_counter": loss_counter,
+        "acc_counter": acc_counter,
+        "best_loss": best_loss,
+        "model": model,
+    }
+    return res
 
 
 # ---------------------- Main Execution ----------------------
