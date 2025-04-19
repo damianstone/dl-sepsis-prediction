@@ -127,7 +127,7 @@ def training_loop(
     epoch_counter, loss_counter, acc_counter = [], [], []
 
     patience = 10  # if the validation doesn't improve after K (patience) checks
-    best_loss = float("inf")
+    best_f2_score = float("inf")
     epochs_without_improvement = 0
     min_epochs = 10
     threshold = 0.5
@@ -205,7 +205,7 @@ def training_loop(
         "epoch_counter": epoch_counter,
         "loss_counter": loss_counter,
         "acc_counter": acc_counter,
-        "best_loss": best_loss,
+        "best_f2_score": best_f2_score,
         "model": model,
     }
     return res
