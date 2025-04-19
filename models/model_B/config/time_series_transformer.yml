@@ -22,7 +22,7 @@ training:
   batch_size: 128
   use_post_weight: true
   max_post_weight: 5
-  lr: 0.001
+  lr: 0.004
   epochs: 1000
 
 testing:

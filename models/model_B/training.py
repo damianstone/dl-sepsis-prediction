@@ -127,9 +127,9 @@ def training_loop(
     epoch_counter, loss_counter, acc_counter = [], [], []
 
     patience = 10  # if the validation doesn't improve after K (patience) checks
-    best_f2_score = float("inf")
+    best_f2_score = 0
     epochs_without_improvement = 0
-    min_epochs = 10
+    min_epochs = 20
     threshold = 0.5
 
     for epoch in range(epochs):
@@ -189,7 +189,6 @@ def training_loop(
             print_validation_metrics(
                 val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true
             )
-            # TODO: based on validation loss or F2 score?
             if epoch >= min_epochs:
                 if f2_score > best_f2_score:
                     best_f2_score = f2_score
