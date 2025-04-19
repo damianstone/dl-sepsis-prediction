@@ -2,18 +2,18 @@ import os
 import sys
 
 import torch
-from custom_dataset import SepsisPatientDataset, collate_fn
-from full_pipeline import get_model, get_pos_weight
 from sklearn.metrics import fbeta_score
 from torch import nn
 from torch.utils.data import DataLoader
-from training import delete_model, save_model, training_loop, validation_loop
 
 file_dir = os.getcwd()
 project_root = os.path.abspath(os.path.join(file_dir, "../.."))
-print
 if project_root not in sys.path:
     sys.path.append(project_root)
+
+from custom_dataset import SepsisPatientDataset, collate_fn
+from full_pipeline import get_model, get_pos_weight
+from training import delete_model, save_model, training_loop, validation_loop
 
 from final_dataset_scripts.dataset_loader import (
     load_test_data,
@@ -21,16 +21,9 @@ from final_dataset_scripts.dataset_loader import (
     load_val_data,
 )
 
-"""
-The goal here is to save the best parameters for each dataset type.
-1. create the train and evaluate function
-2. run the shit in the supercomputer
-3. save the best parameters in a json file
-"""
-
 
 def setup_base_config():
-    config = {
+    return {
         "xperiment": {
             "name": "time_series_transformer_grid_search",
             "model": "time_series",
@@ -48,34 +41,28 @@ def setup_base_config():
             "device": "mps",
         },
     }
-    return config
 
 
 def setup_device():
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-        print("Using MPS device")
-    elif torch.cuda.is_available():
-        device = torch.device("cuda")
-        print("Using CUDA device")
-    else:
-        device = torch.device("cpu")
-        print("Using CPU device")
-    return device
+    device_type = (
+        "mps"
+        if torch.backends.mps.is_available()
+        else "cuda" if torch.cuda.is_available() else "cpu"
+    )
+    print(f"Using {device_type.upper()} device")
+    return torch.device(device_type)
 
 
 def get_loss_fn(config, train_data, device):
     if config["training"]["use_post_weight"]:
-        max_p = config["training"]["max_post_weight"]
-        weight, pos_weight = get_pos_weight(
-            train_data["patient_ids"], train_data["y"], max_p, device
+        _, pos_weight = get_pos_weight(
+            train_data.patient_ids,
+            train_data.y,
+            config["training"]["max_post_weight"],
+            device,
         )
-        config["training"]["weight"] = float(weight)
-        config["training"]["post_weight"] = float(pos_weight)
-        loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    else:
-        loss_fn = nn.BCEWithLogitsLoss()
-    return loss_fn
+        return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    return nn.BCEWithLogitsLoss()
 
 
 def get_f2_score(y_pred, y_true):
@@ -86,9 +73,8 @@ class GridSearchModel:
     def __init__(self, config, device, train_data, val_data, in_dim, model_name):
         self.config = config
         self.device = device
-        self.train_data = train_data
-        self.val_data = val_data
-        self.in_dim = in_dim
+        self.train_loader = train_data.loader
+        self.val_loader = val_data.loader
         self.model = get_model(
             model_to_use=config["xperiment"]["model"],
             config=config,
@@ -118,6 +104,7 @@ class GridSearchModel:
         self.acc_counter = res["acc_counter"]
         self.best_loss = res["best_loss"]
         self.model = res["model"]
+
         _, _, _, _, y_pred, y_true = validation_loop(
             self.model,
             self.val_loader,
@@ -142,6 +129,7 @@ class DataWrapper:
         self.dataset = dataset
         self.loader = loader
 
+    @staticmethod
     def from_map(map):
         return DataWrapper(
             map["X"], map["y"], map["patient_ids"], map["dataset"], map["loader"]
@@ -149,37 +137,43 @@ class DataWrapper:
 
 
 def get_data(config, type):
-    """
-    type: "train", "val", "test"
-    """
-    data = {}
     if type == "train":
         data = load_train_data(config["dataset_type"])
     elif type == "val":
         data = load_val_data()
     elif type == "test":
         data = load_test_data()
-    X = data["X"]
-    y = data["y"]
-    patient_ids = data["patient_ids"]
+    else:
+        raise ValueError(f"Unknown data type: {type}")
+
     dataset = SepsisPatientDataset(
-        X.values, y.values, patient_ids.values, time_index=X.columns.get_loc("ICULOS")
+        data["X"].values,
+        data["y"].values,
+        data["patient_ids"].values,
+        time_index=data["X"].columns.get_loc("ICULOS"),
     )
-    training_or_testing = "testing" if type == "test" else "training"
+
     loader = DataLoader(
         dataset,
-        batch_size=config[training_or_testing]["batch_size"],
+        batch_size=config["testing" if type == "test" else "training"]["batch_size"],
         shuffle=True,
         collate_fn=collate_fn,
         drop_last=True,
     )
-    data["dataset"] = dataset
-    data["loader"] = loader
-    return DataWrapper.from_map(data)
+
+    return DataWrapper.from_map(
+        {
+            "X": data["X"],
+            "y": data["y"],
+            "patient_ids": data["patient_ids"],
+            "dataset": dataset,
+            "loader": loader,
+        }
+    )
 
 
 def save_best_models(best_models):
-    for dataset_type, best_model in best_models.items():
+    for best_model in best_models.values():
         best_model.save()
 
 
@@ -187,6 +181,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     best_model = None
     iterations = 0
     total_iterations = 4 * 3 * 3 * 3
+
     for d_model in [64, 128, 256]:
         for num_heads in [2, 4, 8]:
             if d_model % num_heads != 0:
@@ -199,12 +194,13 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
                     )
                     model_name = f"{config['dataset_type']}_{iterations}"
                     config_new = config.copy()
-                    config_new["model"] = {}
-                    config_new["model"]["d_model"] = d_model
-                    config_new["model"]["num_heads"] = num_heads
-                    config_new["model"]["num_layers"] = num_layers
-                    config_new["model"]["drop_out"] = drop_out
-                    config_new["model"]["input_dimention"] = in_dim
+                    config_new["model"] = {
+                        "d_model": d_model,
+                        "num_heads": num_heads,
+                        "num_layers": num_layers,
+                        "drop_out": drop_out,
+                        "input_dimension": in_dim,
+                    }
 
                     model = GridSearchModel(
                         config_new, device, train_data, val_data, in_dim, model_name
@@ -212,7 +208,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
                     model.train_and_evaluate()
 
                     if best_model is None or model.f2_score < best_model.f2_score:
-                        if best_model is not None:
+                        if best_model:
                             best_model.delete()
                         best_model = model
                         best_model.save()
@@ -226,7 +222,6 @@ def pipeline():
     config = setup_base_config()
     device = setup_device()
     val_data = get_data(config, "val")
-    get_data(config, "test")
 
     datasets = ["imbalanced", "oversampled", "downsampled"]
     best_models = {}
@@ -236,6 +231,9 @@ def pipeline():
         config_new["dataset_type"] = dataset_type
 
         train_data = get_data(config_new, "train")
-
-        best_model = run_grid_search(config_new, device, train_data, val_data)
+        best_model = run_grid_search(
+            config_new, device, train_data, val_data, train_data.X.shape[1]
+        )
         best_models[dataset_type] = best_model
+
+    return best_models
