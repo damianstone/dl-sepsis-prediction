@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-types = ["no_sampling", "oversampling", "undersampling"]
+types = ["no_sampling", "oversampled", "undersampled"]
 
 
 def find_project_root(marker=".gitignore"):

@@ -1,21 +1,25 @@
+import copy
 import os
 import sys
 
-import torch
-from sklearn.metrics import fbeta_score
-from torch import nn
-from torch.utils.data import DataLoader
-
-file_dir = os.getcwd()
+# Set up project path
+file_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(file_dir, "../.."))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
+import torch
+
+# Import local modules directly
 from custom_dataset import SepsisPatientDataset, collate_fn
 from full_pipeline import data_plots_and_metrics, get_model, get_pos_weight
+from sklearn.metrics import fbeta_score
 from testing import testing_loop
+from torch import nn
+from torch.utils.data import DataLoader
 from training import delete_model, save_model, training_loop, validation_loop
 
+# Import from final_dataset_scripts
 from final_dataset_scripts.dataset_loader import (
     load_test_data,
     load_train_data,
@@ -216,10 +220,11 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
                 for drop_out in [0.1, 0.2, 0.3]:
                     iterations += 1
                     print(
-                        f"Running grid search: {iterations} / {total_iterations} iterations"
+                        f"Running grid search: {iterations}/{total_iterations} "
+                        f"iterations"
                     )
                     model_name = f"{config['dataset_type']}_{iterations}"
-                    config_new = config.deepcopy()
+                    config_new = copy.deepcopy(config)
                     config_new["model"] = {
                         "d_model": d_model,
                         "num_heads": num_heads,
@@ -249,11 +254,11 @@ def pipeline():
     device = setup_device()
     val_data = get_data(config, "val")
     test_data = get_data(config, "test")
-    datasets = ["imbalanced", "oversampled", "downsampled"]
+    datasets = ["no_sampling", "oversampling", "undersampling"]
     best_models = {}
     for dataset_type in datasets:
         print(f"Running grid search for {dataset_type}")
-        config_new = config.deepcopy()
+        config_new = copy.deepcopy(config)
         config_new["dataset_type"] = dataset_type
 
         train_data = get_data(config_new, "train")
