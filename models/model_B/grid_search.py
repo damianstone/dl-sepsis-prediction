@@ -3,10 +3,11 @@ import sys
 
 import torch
 from custom_dataset import SepsisPatientDataset, collate_fn
-from full_pipeline import get_model, get_pos_weight, training_loop
+from full_pipeline import get_model, get_pos_weight
+from sklearn.metrics import fbeta_score
 from torch import nn
 from torch.utils.data import DataLoader
-from training import training_loop
+from training import delete_model, save_model, training_loop, validation_loop
 
 file_dir = os.getcwd()
 project_root = os.path.abspath(os.path.join(file_dir, "../.."))
@@ -77,6 +78,10 @@ def get_loss_fn(config, train_data, device):
     return loss_fn
 
 
+def get_f2_score(y_pred, y_true):
+    return fbeta_score(y_true, y_pred, beta=2)
+
+
 class GridSearchModel:
     def __init__(self, config, device, train_data, val_data, in_dim, model_name):
         self.config = config
@@ -113,6 +118,20 @@ class GridSearchModel:
         self.acc_counter = res["acc_counter"]
         self.best_loss = res["best_loss"]
         self.model = res["model"]
+        _, _, _, _, y_pred, y_true = validation_loop(
+            self.model,
+            self.val_loader,
+            self.loss_fn,
+            self.device,
+            self.config["testing"]["threshold"],
+        )
+        self.f2_score = get_f2_score(y_pred, y_true)
+
+    def delete(self):
+        delete_model(self.model_name)
+
+    def save(self):
+        save_model(self.model_name, self.model)
 
 
 class DataWrapper:
@@ -193,7 +212,13 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
                     model.train_and_evaluate()
 
                     if best_model is None or model.f2_score < best_model.f2_score:
+                        if best_model is not None:
+                            best_model.delete()
                         best_model = model
+                        best_model.save()
+
+    if best_model is None:
+        raise ValueError("No best model found")
     return best_model
 
 
@@ -214,5 +239,3 @@ def pipeline():
 
         best_model = run_grid_search(config_new, device, train_data, val_data)
         best_models[dataset_type] = best_model
-
-    save_best_models(best_models)
