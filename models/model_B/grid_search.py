@@ -22,7 +22,13 @@ project_root = os.path.abspath(os.path.join(file_dir, "../.."))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
+import random
+
+import numpy as np
 import torch
+
+# Fixed random seed for reproducibility
+RANDOM_STATE = 42
 
 # Import local modules directly
 from custom_dataset import SepsisPatientDataset, collate_fn
@@ -50,6 +56,20 @@ from final_dataset_scripts.dataset_loader import types as dataset_types
 # ============================================================================
 # Configuration and Utility Functions
 # ============================================================================
+
+
+def set_seeds(seed: int = RANDOM_STATE):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # Ensure deterministic behavior in cuDNN (if available)
+    try:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+    except AttributeError:
+        pass
 
 
 def setup_base_config():
@@ -354,4 +374,5 @@ def pipeline():
 
 
 if __name__ == "__main__":
+    set_seeds()
     pipeline()
