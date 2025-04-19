@@ -69,7 +69,6 @@ def setup_base_config():
         "testing": {
             "batch_size": 32,
             "threshold": 0.5,
-            "device": "mps",
         },
     }
 
