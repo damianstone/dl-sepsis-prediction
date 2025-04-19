@@ -274,7 +274,6 @@ def get_data(config, type):
         batch_size=config["testing" if type == "test" else "training"]["batch_size"],
         shuffle=True,
         collate_fn=collate_fn,
-        drop_last=True,
     )
 
     return DataWrapper.from_map(
