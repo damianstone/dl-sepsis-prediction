@@ -264,6 +264,7 @@ def full_pipeline():
     epoch_counter = res["epoch_counter"]
     loss_counter = res["loss_counter"]
     acc_counter = res["acc_counter"]
+    config["training"]["best_valition_f2_score"] = res["best_f2_score"]
 
     # -------------------------------- TESTING LOOP --------------------------------
     batch_size = config["testing"]["batch_size"]

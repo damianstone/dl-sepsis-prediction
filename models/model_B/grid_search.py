@@ -14,23 +14,11 @@ Usage:
 
 import copy
 import os
-import sys
-
-# Set up project path
-file_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(file_dir, "../.."))
-if project_root not in sys.path:
-    sys.path.append(project_root)
-
 import random
+import sys
 
 import numpy as np
 import torch
-
-# Fixed random seed for reproducibility
-RANDOM_STATE = 42
-
-# Import local modules directly
 from custom_dataset import SepsisPatientDataset, collate_fn
 from full_pipeline import data_plots_and_metrics, get_model, get_pos_weight
 from testing import testing_loop
@@ -45,13 +33,26 @@ from training import (
     validation_loop,
 )
 
-# Import from final_dataset_scripts
 from final_dataset_scripts.dataset_loader import (
     load_test_data,
     load_train_data,
     load_val_data,
 )
 from final_dataset_scripts.dataset_loader import types as dataset_types
+
+# Set up project path
+file_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(file_dir, "../.."))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+
+# Fixed random seed for reproducibility
+RANDOM_STATE = 42
+
+# Import local modules directly
+
+# Import from final_dataset_scripts
 
 # ============================================================================
 # Configuration and Utility Functions
@@ -309,7 +310,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
             if d_model % num_heads != 0:
                 iterations += 3 * 3
                 continue
-            for num_layers in [1, 2, 3]:
+            for num_layers in [1, 2, 4]:
                 for drop_out in [0.1, 0.2, 0.3]:
                     iterations += 1
                     print(

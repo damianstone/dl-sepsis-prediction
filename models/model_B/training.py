@@ -117,8 +117,8 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
     val_acc = accuracy_score(full_y_true, full_y_pred)
     val_prec = precision_score(full_y_true, full_y_pred, zero_division=0)
     val_rec = recall_score(full_y_true, full_y_pred, zero_division=0)
-
-    return val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true
+    f2_score = get_f2_score(full_y_pred, full_y_true)
+    return val_loss, val_acc, val_prec, val_rec, f2_score, full_y_pred, full_y_true
 
 
 def training_loop(
@@ -127,7 +127,7 @@ def training_loop(
     epoch_counter, loss_counter, acc_counter = [], [], []
 
     patience = 10  # if the validation doesn't improve after K (patience) checks
-    best_loss = float("inf")
+    best_f2_score = float("inf")
     epochs_without_improvement = 0
     min_epochs = 10
     threshold = 0.5
@@ -183,15 +183,16 @@ def training_loop(
         )
 
         if val_loader is not None and epoch % 2 == 0:
-            val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true = (
+            val_loss, val_acc, val_prec, val_rec, f2_score, full_y_pred, full_y_true = (
                 validation_loop(model, val_loader, loss_fn, device, threshold)
             )
             print_validation_metrics(
                 val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true
             )
+            # TODO: based on validation loss or F2 score?
             if epoch >= min_epochs:
-                if val_loss < best_loss:
-                    best_loss = val_loss
+                if f2_score > best_f2_score:
+                    best_f2_score = f2_score
                     epochs_without_improvement = 0
                     save_model(experiment_name, model)
                 else:
@@ -204,7 +205,7 @@ def training_loop(
         "epoch_counter": epoch_counter,
         "loss_counter": loss_counter,
         "acc_counter": acc_counter,
-        "best_loss": best_loss,
+        "best_f2_score": best_f2_score,
         "model": model,
     }
     return res
@@ -214,68 +215,3 @@ def training_loop(
 if __name__ == "__main__":
     print("not implemented")
     # train(model, train_loader, optimizer, loss_fn, epochs, device, threshold_update_n_batches)
-
-
-"""
-def validate_and_adjust_threshold(
-        model,
-        val_loader,
-        loss_fn,
-        device,
-        t_precision,
-        t_recall):
-    model.eval()
-    total_loss, total_acc, total_prec, total_rec = 0, 0, 0, 0
-    n_batches = 0
-    all_y_probs, all_y_true = [], []
-
-    with torch.no_grad():
-        for X_batch, y_batch, attention_mask in val_loader:
-            X_batch, y_batch, attention_mask = (X_batch.to(
-                device), y_batch.to(device), attention_mask.to(device))
-            y_logits = model(X_batch, mask=attention_mask)
-            loss = loss_fn(y_logits.squeeze(), y_batch.float())
-            y_probs = torch.sigmoid(y_logits)
-
-            # store probabilities and true labels for threshold adjustment
-            all_y_probs.append(y_probs.cpu())
-            all_y_true.append(y_batch.cpu())
-
-            # compute metrics with default threshold 0.5
-            y_preds = (y_probs >= 0.5).float()
-            total_loss += loss.item()
-            # using t_precision instance here for simplicity
-            total_acc += t_precision(y_preds.squeeze(), y_batch.float()).item()
-            total_prec += t_precision(y_preds.squeeze(), y_batch.float()).item()
-            total_rec += t_recall(y_preds.squeeze(), y_batch.float()).item()
-            n_batches += 1
-
-    avg_loss = total_loss / n_batches
-    avg_acc = total_acc / n_batches
-    avg_prec = total_prec / n_batches
-    avg_rec = total_rec / n_batches
-
-    # Concatenate stored predictions and true labels
-    # all_y_probs = torch.cat(all_y_probs, dim=0)
-    # all_y_true  = torch.cat(all_y_true, dim=0)
-
-    # NOTE::  using FB score as it weights recall more heavily than precision
-    # thresholds=[0.3, 0.5]
-    # best_threshold = 0.5
-    # best_fbeta = 0
-    # beta = 2 # recall will be 9x more important
-    # for t in thresholds:
-    #     y_preds_t = (all_y_probs >= t).float()
-    #     prec = t_precision(y_preds_t.squeeze(), all_y_true.float())
-    #     rec = t_recall(y_preds_t.squeeze(), all_y_true.float())
-    #     fbeta = (1 + beta**2) * (prec * rec) / (beta**2 * prec + rec + 1e-8)
-    #     if fbeta.item() > best_fbeta:
-    #         best_fbeta = fbeta.item()
-    #         best_threshold = t
-
-    print(
-        f"validation -> loss: {avg_loss:.5f} | accuracy: {avg_acc:.2f}% | precision: {avg_prec:.2f}% | recall: {avg_rec:.2f}%")
-    # print(f"Adjusted validation threshold to: {best_threshold:.2f} with FB: {best_fbeta:.4f}")
-    return avg_loss, avg_acc, avg_prec, avg_rec, None
-
-"""
