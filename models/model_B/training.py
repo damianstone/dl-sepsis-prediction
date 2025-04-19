@@ -126,10 +126,10 @@ def training_loop(
 ):
     epoch_counter, loss_counter, acc_counter = [], [], []
 
-    patience = 10  # if the validation doesn't improve after K (patience) checks
+    patience = 15  # if the validation doesn't improve after K (patience) checks
     best_f2_score = 0
     epochs_without_improvement = 0
-    min_epochs = 20
+    min_epochs = 50
     threshold = 0.5
 
     for epoch in range(epochs):
@@ -182,7 +182,7 @@ def training_loop(
             f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc*100:.2f}% | Precision: {epoch_prec*100:.2f}% | Recall: {epoch_rec*100:.2f}%"
         )
 
-        if val_loader is not None and epoch % 2 == 0:
+        if val_loader is not None and epoch % 1 == 0:
             val_loss, val_acc, val_prec, val_rec, f2_score, full_y_pred, full_y_true = (
                 validation_loop(model, val_loader, loss_fn, device, threshold)
             )
