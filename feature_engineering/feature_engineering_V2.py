@@ -31,23 +31,16 @@ def find_project_root(marker=".gitignore"):
 
 def calculate_scores(df):
     """
-    calculate the scores for each measurement value as save it as a new feature
-    for example:
-      HR_SOFA
-      HR_NEWS
-      HR_qSOFA
-      O2Sat_SOFA
-      O2Sat_NEWS
-      O2Sat_qSOFA
+    New columns added to input DataFrame:
+     - SOFA_Creatinine, SOFA_Platelets, SOFA_Bilirubin_total, SOFA_SaO2_FiO2, SOFA_score
+     - NEWS_HR_score, NEWS_Resp_score, NEWS_Temp_score, NEWS_SBP_score, NEWS_O2Sat_score, NEWS_FiO2_score, NEWS_score
+     - qSOFA_Resp_score, qSOFA_SBP_score, qSOFA_score
+     - Shock_Index - mentioned in the winning paper from the challenge
+     - Bilirubin_Ratio - mentioned in the winning paper from the challenge
 
-    it also adds the general scores for each patient:
-      SOFA
-      NEWS
-      qSOFA
-
-    Breaking down scores by individual measurements (HR_SOFA, HR_NEWS) helps the model understand
-    how each vital sign contributes to overall risk, enabling better pattern recognition across
-    time series data.
+     Breaking down scores by individual measurements (HR_SOFA, HR_NEWS) helps the model understand
+     how each vital sign contributes to overall risk, enabling better pattern recognition across
+     time series data.
     """
     df = df.copy()
     # go to each of these functions to know how they work
