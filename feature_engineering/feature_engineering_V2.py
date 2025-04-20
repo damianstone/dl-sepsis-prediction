@@ -23,29 +23,6 @@ def find_project_root(marker=".gitignore"):
     )
 
 
-def calculate_scores(df):
-    """
-    calculate the scores for each measurement value as save it as a new feature
-    for example:
-      HR_SOFA
-      HR_NEWS
-      HR_qSOFA
-      O2Sat_SOFA
-      O2Sat_NEWS
-      O2Sat_qSOFA
-
-    it also adds the general scores for each patient:
-      SOFA
-      NEWS
-      qSOFA
-
-    Breaking down scores by individual measurements (HR_SOFA, HR_NEWS) helps the model understand
-    how each vital sign contributes to overall risk, enabling better pattern recognition across
-    time series data.
-    """
-    df = df.copy()
-
-
 def aggregate_window_features(df, cols, suffix):
     """
     This function analyzes vital signs over 6-hour windows, calculating statistics

@@ -361,6 +361,7 @@ def add_medical_scores(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add all medical scores (SOFA, NEWS, qSOFA) to the DataFrame.
     """
+    df = df.copy()
     df = add_sofa_scores(df)
     df = add_news_scores(df)
     df = add_qsofa_score(df)
@@ -377,6 +378,23 @@ def test_functions():
     df = add_sofa_scores(df)
     df = add_news_scores(df)
     df = add_qsofa_score(df)
+    # test if the columns are added correctly
+    assert "renal_score" in df.columns
+    assert "coagulation_score" in df.columns
+    assert "liver_score" in df.columns
+    assert "respiratory_score" in df.columns
+    assert "sofa_score" in df.columns
+    assert "NEWS_HR_score" in df.columns
+    assert "NEWS_Resp_score" in df.columns
+    assert "NEWS_Temp_score" in df.columns
+    assert "NEWS_SBP_score" in df.columns
+    assert "NEWS_O2Sat_score" in df.columns
+    assert "NEWS_FiO2_score" in df.columns
+    assert "NEWS_score" in df.columns
+    assert "qsofa_resp_score" in df.columns
+    assert "qsofa_sbp_score" in df.columns
+    assert "qsofa_gcs_score" in df.columns
+    assert "qsofa_score" in df.columns
     return df
 
 
