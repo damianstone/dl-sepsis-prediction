@@ -2,7 +2,13 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from medical_scoring import add_medical_scores
+from medical_scoring import (
+    add_bilirubin_ratio,
+    add_news_scores,
+    add_qsofa_score,
+    add_shock_index,
+    add_sofa_scores,
+)
 from sklearn.preprocessing import LabelEncoder
 
 # continues features
@@ -23,56 +29,119 @@ def find_project_root(marker=".gitignore"):
     )
 
 
+def calculate_scores(df):
+    """
+    New columns added to input DataFrame:
+     - SOFA_Creatinine, SOFA_Platelets, SOFA_Bilirubin_total, SOFA_SaO2_FiO2, SOFA_score
+     - NEWS_HR_score, NEWS_Resp_score, NEWS_Temp_score, NEWS_SBP_score, NEWS_O2Sat_score, NEWS_FiO2_score, NEWS_score
+     - qSOFA_Resp_score, qSOFA_SBP_score, qSOFA_score
+     - Shock_Index - mentioned in the winning paper from the challenge
+     - Bilirubin_Ratio - mentioned in the winning paper from the challenge
+
+     Breaking down scores by individual measurements (HR_SOFA, HR_NEWS) helps the model understand
+     how each vital sign contributes to overall risk, enabling better pattern recognition across
+     time series data.
+    """
+    df = df.copy()
+    # go to each of these functions to know how they work
+    df = add_sofa_scores(df)
+    df = add_news_scores(df)
+    df = add_qsofa_score(df)
+    df = add_shock_index(df)
+    df = add_bilirubin_ratio(df)
+    return df
+
+
+def aggregate_global_score_features(df, suffix="global"):
+    """
+    calculate statistical features (mean, max, last value) from clinical scores in each time step
+    This helps capture disease progression patterns and temporal trends,
+    which are crucial for predicting sepsis development.
+
+    Example output for one patient:
+    'SOFA_mean_global': 3.5,    # Average SOFA during stay
+    'SOFA_median_global': 3.0,   # Median SOFA
+    'SOFA_max_global': 6.0,      # Highest SOFA
+    'SOFA_last_global': 4.0      # Final SOFA
+    """
+    df = df.copy()
+    for pid, group in df.groupby("patient_id"):
+        for score_name in ["SOFA_score", "NEWS_score", "qSOFA_score"]:
+            series = group[score_name].dropna()
+            df.loc[group.index, f"{score_name}_mean_global"] = series.mean()
+            df.loc[group.index, f"{score_name}_median_global"] = series.median()
+            df.loc[group.index, f"{score_name}_max_global"] = series.max()
+            df.loc[group.index, f"{score_name}_last_global"] = (
+                series.iloc[-1] if not series.empty else np.nan
+            )
+    return df
+
+
 def aggregate_window_features(df, cols, suffix):
     """
+    THIS MOSTLY FOR THE XGBOOST
     This function analyzes vital signs over 6-hour windows, calculating statistics
     (mean, min, max, std) and missing data patterns. It helps detect short-term physiological
     changes and data quality issues that might indicate sepsis onset.
+
+    For transformers, global scores are less crucial since transformers can learn
+    temporal patterns directly from sequential data. However, they can still be useful as
+    auxiliary features to provide high-level summaries of patient state. Consider them optional.
     """
     stats = {}
     for col in cols:
         series = df[col].dropna()
         stats[f"{col}_mean_{suffix}"] = series.mean()
+        stats[f"{col}_median_{suffix}"] = series.median()
         stats[f"{col}_std_{suffix}"] = series.std()
         stats[f"{col}_min_{suffix}"] = series.min()
         stats[f"{col}_max_{suffix}"] = series.max()
         stats[f"{col}_last_{suffix}"] = series.iloc[-1] if not series.empty else np.nan
-        # TODO: include median
-        # TODO: include standard deviation
-
-        is_missing = df[col].isna()
-        stats[f"{col}_missing_count_{suffix}"] = is_missing.sum()
-        stats[f"{col}_missing_rate_{suffix}"] = is_missing.mean()
     return stats
 
 
-def aggregate_scores(df, suffix="global"):
+def generate_window_features_old(df, cols):
     """
-    calculate statistical features (mean, max, last value) from clinical scores over time windows.
-    This helps capture disease progression patterns and temporal trends,
-    which are crucial for predicting sepsis development.
+    For each patient:
+
+    1. Sort rows by ICU stay time (`ICULOS`).
+    2. For each row, look back at the last 6 rows (6-hour window).
+    3. If there are 6 or more rows: compute stats (mean, std, min, max, last, missing count, missing rate).
+    4. If fewer than 6 rows: fill all stats with zero.
+    5. Save the stats into the current row.
+    6. After all patients are processed, return the full dataset with new features.
     """
-    # NOTE: sofa, qsofa and news will be already at this point
-    return {
-        f"SOFA_mean_{suffix}": sofa_scores.mean(),
-        f"SOFA_max_{suffix}": sofa_scores.max(),
-        f"SOFA_last_{suffix}": (
-            sofa_scores.iloc[-1] if not sofa_scores.empty else np.nan
-        ),
-        # TODO: include median
-        f"NEWS_mean_{suffix}": news_scores.mean(),
-        f"NEWS_max_{suffix}": news_scores.max(),
-        f"NEWS_last_{suffix}": (
-            news_scores.iloc[-1] if not news_scores.empty else np.nan
-        ),
-        # TODO: include median
-        f"qSOFA_mean_{suffix}": qsofa_scores.mean(),
-        f"qSOFA_max_{suffix}": qsofa_scores.max(),
-        f"qSOFA_last_{suffix}": (
-            qsofa_scores.iloc[-1] if not qsofa_scores.empty else np.nan
-        ),
-        # TODO: include median
-    }
+    df = df.copy()
+    all_rows = []
+
+    for pid, group in df.groupby("patient_id"):
+        scores = aggregate_global_score_features(group, suffix="global")
+        for k, v in scores.items():
+            group[k] = v
+
+        group = group.sort_values("ICULOS").copy()
+        for i in range(len(group)):
+            if i >= 6:
+                window = group.iloc[i - 6 : i]
+                stats = aggregate_window_features(window, cols, suffix="6h")
+            else:
+                stats = {
+                    f"{col}_{stat}_6h": 0
+                    for col in cols
+                    for stat in [
+                        "mean",
+                        "median",
+                        "std",
+                        "min",
+                        "max",
+                        "last",
+                    ]
+                }
+            for k, v in stats.items():
+                group.loc[group.index[i], k] = v
+        all_rows.append(group)
+
+    return pd.concat(all_rows).reset_index(drop=True)
 
 
 def generate_window_features(df, cols):
@@ -84,59 +153,92 @@ def generate_window_features(df, cols):
 
     example new columns for each patient:
       HR_mean_6h
+      HR_median_6h
       HR_std_6h
       HR_min_6h
       HR_max_6h
       HR_last_6h
-      HR_missing_count_6h
-      HR_missing_rate_6h
     """
-    df_out = []
-    for pid, group in df.groupby("patient_id"):
-        group = group.sort_values("ICULOS").copy()
-        group_features = group.copy()
-        for i in range(len(group)):
-            if i >= 6:
-                window = group.iloc[i - 6:i]
-                stats = aggregate_window_features(window, cols, suffix="6h")
+    df = df.copy()
+    df = df.sort_values(["patient_id", "ICULOS"])  # Ensure time-based sorting
+
+    # count the number of patients
+    num_patients = len(df["patient_id"].unique())
+    print(f"Number of patients: {num_patients}")
+
+    i = 0
+    for patient_id in df["patient_id"].unique():
+        i += 1
+        patient_mask = df["patient_id"] == patient_id
+        print(f"Processing patient {i} of {num_patients}")
+        for column in cols:
+            series = df.loc[patient_mask, column]
+            df.loc[patient_mask, f"{column}_max_6h"] = series.rolling(
+                window=6, min_periods=1
+            ).max()
+            df.loc[patient_mask, f"{column}_min_6h"] = series.rolling(
+                window=6, min_periods=1
+            ).min()
+            df.loc[patient_mask, f"{column}_mean_6h"] = series.rolling(
+                window=6, min_periods=1
+            ).mean()
+            df.loc[patient_mask, f"{column}_median_6h"] = series.rolling(
+                window=6, min_periods=1
+            ).median()
+            df.loc[patient_mask, f"{column}_std_6h"] = series.rolling(
+                window=6, min_periods=1
+            ).std()
+            df.loc[patient_mask, f"{column}_diff_std_6h"] = (
+                series.diff().rolling(window=6, min_periods=1).std()
+            )
+
+    return df
+
+
+def compute_missingness_summary(df, cols):
+    summary = {}
+    for col in cols:
+        series = df[col]
+        is_missing = series.isna()
+        summary[f"{col}_missing_count_global"] = is_missing.sum()
+
+        last_seen = None
+        intervals = []
+        for i, val in enumerate(series):
+            if pd.notna(val):
+                last_seen = i
+            elif last_seen is not None:
+                intervals.append(i - last_seen)
             else:
-                stats = {
-                    f"{col}_{stat}_6h": 0
-                    for col in cols
-                    for stat in ["mean", "std", "min", "max", "last"]
-                }
-            for k, v in stats.items():
-                group_features.at[group.index[i], k] = v
-        df_out.append(group_features)
-    return pd.concat(df_out)
+                intervals.append(-1)
+        valid_intervals = [v for v in intervals if v >= 0]
+        summary[f"{col}_missing_interval_mean_global"] = (
+            np.mean(valid_intervals) if valid_intervals else -1
+        )
+    return summary
 
 
-
-def generate_missingness_features(raw_df, imputed_df, df_features):
-    
-    #missing count、missing rate
-    
+def generate_missingness_features(raw_df, imputed_df, df_with_features):
+    """
+    The frequency of missing values reflects how often a measurement is taken.
+    If a patient is generally stable, clinicians may shift their attention to other, more critical issues
+    such as rapidly deteriorating patients or specific key indicators. Therefore, a low rate of missingness
+    (i.e., frequent measurement) suggests that the patient or that specific variable is receiving more clinical attention.
+    """
+    raw_df = raw_df.copy()
+    imputed_df = imputed_df.copy()
+    df_with_features = df_with_features.copy()
     selected_cols = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
-    missingness_rows = []
+    missing_rows = []
 
     for pid, group in raw_df.groupby("patient_id"):
-        row = {"patient_id": pid}
-        for col in selected_cols:
-            is_missing = group[col].isna()
-            row[f"{col}_missing_count"] = is_missing.sum()
-            row[f"{col}_missing_rate"] = is_missing.mean()
-            
-            missing_indices = group[is_missing].index.to_list()
-            if len(missing_indices) >= 2:
-                gaps = np.diff(missing_indices)
-                row[f"{col}_missing_interval_avg"] = np.mean(gaps)
-            else:
-                row[f"{col}_missing_interval_avg"] = 0
-        missingness_rows.append(row)
+        summary = compute_missingness_summary(group, selected_cols)
+        summary["patient_id"] = pid
+        missing_rows.append(summary)
 
-    df_missing = pd.DataFrame(missingness_rows)
-    df_features = pd.merge(df_features, df_missing, on="patient_id", how="left")
-    return df_features
+    df_missing = pd.DataFrame(missing_rows)
+    df_merged = pd.merge(df_with_features, df_missing, on="patient_id", how="left")
+    return df_merged
 
 
 def print_new_columns(df_features, imputed_df):
@@ -144,47 +246,45 @@ def print_new_columns(df_features, imputed_df):
     print(f"New columns added: {new_columns}")
 
 
-
 def preprocess_data(raw_file, imputed_file, output_file):
     raw_df = pd.read_parquet(raw_file)
     imputed_df = pd.read_parquet(imputed_file)
     df_features = imputed_df.copy()
 
-    # 1: AIDEN
     # Add medical scoring features including: SOFA, NEWS, qSOFA and component scores
-    df_features = add_medical_scores(df_features)
+    df_features = calculate_scores(df_features)
+    print("CALCULATE SCORES DONE")
 
-    # 3: ZHOU
+    # aggregate global scores for each time step
+    df_features = aggregate_global_score_features(df_features)
+    print("AGGREGATE GLOBAL SCORES DONE")
+
+    # missingness features
+    df_features = generate_missingness_features(raw_df, imputed_df, df_features)
+    print("GENERATE MISSINGNESS FEATURES DONE")
+
     # six-hour slide window statistics of selected columns
     columns = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
     df_features = generate_window_features(df_features, columns)
+    print("GENERATE WINDOW FEATURES DONE")
 
-    # 4: ZHOU
-    # missingness features
-    df_features = generate_missingness_features(raw_df, imputed_df, df_features)
-
-    # 5: DON'T CARE
     # drop useless columns
     df_features = df_features.drop(columns=["Unit1", "Unit2", "cluster_id", "dataset"])
-
-    # 6: DON'T CARE
+    print("DROP USELESS COLUMNS DONE")
     # handle gender as a categorical variable
     df_features["Gender"] = LabelEncoder().fit_transform(
         df_features["Gender"].astype(str)
     )
-
-    # 7: DON'T CARE
-    # scale the features - min max scaler ? discuss this later
+    print("HANDLE GENDER DONE")
 
     # NOTE: before save the data, print the following checks:
     # print a check for nan values (should not be any)
     if df_features.isna().sum().sum() > 0:
         # save the dataset with nan values for debugging
         df_features.to_parquet(f"{output_file}_with_nans.parquet")
-        raise ValueError("Found NaN values in the dataset")
         # NOTE: handle nan values doing forward fill and then back fill
-        # df_features = df_features.fillna(method="ffill")
-        # df_features = df_features.fillna(method="bfill")
+        df_features = df_features.fillna(method="ffill")
+        df_features = df_features.fillna(method="bfill")
     else:
         print("No NaN values found in the dataset")
     # print the new columns names added after feature engineering comparing with the imputed_df
@@ -199,6 +299,6 @@ def preprocess_data(raw_file, imputed_file, output_file):
 if __name__ == "__main__":
     root = find_project_root()
     RAW_DATASET = f"{root}/dataset/raw_combined_data.parquet"
-    INPUT_DATASET = f"{root}/dataset/Fully_imputed_dataset.parquet"
+    IMPUTED_DATASET = f"{root}/dataset/Fully_imputed_dataset.parquet"
     OUTPUT_DATASET = f"{root}/dataset/V2_preprocessed.parquet"
-    preprocess_data(OUTPUT_DATASET)
+    preprocess_data(RAW_DATASET, IMPUTED_DATASET, OUTPUT_DATASET)
