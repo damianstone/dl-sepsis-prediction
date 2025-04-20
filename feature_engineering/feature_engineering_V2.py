@@ -158,6 +158,37 @@ def generate_window_features(df, cols):
     return pd.concat(all_rows).reset_index(drop=True)
 
 
+def generate_window_features_martin(df, cols):
+    df = df.copy()
+    df = df.sort_values(["patient_id", "ICULOS"])  # Ensure time-based sorting
+
+    for patient_id in df["patient_id"].unique():
+        patient_mask = df["patient_id"] == patient_id
+
+        for column in cols:
+            series = df.loc[patient_mask, column]
+            df.loc[patient_mask, f"{column}_max_6h"] = series.rolling(
+                window=6, min_periods=1
+            ).max()
+            df.loc[patient_mask, f"{column}_min_6h"] = series.rolling(
+                window=6, min_periods=1
+            ).min()
+            df.loc[patient_mask, f"{column}_mean_6h"] = series.rolling(
+                window=6, min_periods=1
+            ).mean()
+            df.loc[patient_mask, f"{column}_median_6h"] = series.rolling(
+                window=6, min_periods=1
+            ).median()
+            df.loc[patient_mask, f"{column}_std_6h"] = series.rolling(
+                window=6, min_periods=1
+            ).std()
+            df.loc[patient_mask, f"{column}_diff_std_6h"] = (
+                series.diff().rolling(window=6, min_periods=1).std()
+            )
+
+    return df
+
+
 def compute_missingness_summary(df, cols):
     summary = {}
     for col in cols:
@@ -222,7 +253,7 @@ def preprocess_data(raw_file, imputed_file, output_file):
     # 3: ZHOU
     # six-hour slide window statistics of selected columns
     columns = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
-    df_features = generate_window_features(df_features, columns)
+    df_features = generate_window_features_martin(df_features, columns)
     print("GENERATE WINDOW FEATURES DONE")
     # 4: ZHOU
     # missingness features
