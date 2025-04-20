@@ -14,3 +14,4 @@ dataset/pca_preprocessed_data.parquet
 *.parquet
 /models/model_B/results
 /models/model_B/saved
+*.zip

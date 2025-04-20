@@ -192,10 +192,12 @@ def preprocess_data(
     train_val_df = df[df["patient_id"].isin(train_val_patients)]
     test_df = df[df["patient_id"].isin(test_patients)]
 
-    if train_sample_fraction < 1.0:
+    if train_sample_fraction < 1:
         train_val_df = reduce_dataset(
             df=train_val_df, train_sample_fraction=train_sample_fraction
         )
+    else:
+        print("No reduction of dataset")
 
     train_patients, val_patients = train_test_split(
         train_val_patients,
@@ -211,9 +213,6 @@ def preprocess_data(
     if sampling:
         train_df = over_under_sample(
             df=train_df, method=sampling_method, minority_ratio=sampling_minority_ratio
-        )
-        val_df = over_under_sample(
-            df=val_df, method=sampling_method, minority_ratio=sampling_minority_ratio
         )
 
     save_processed_data(

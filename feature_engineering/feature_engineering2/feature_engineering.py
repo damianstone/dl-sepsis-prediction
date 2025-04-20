@@ -1,5 +1,4 @@
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 
@@ -214,7 +213,7 @@ def run_multiwindow_feature_engineering(compress=False):
         df = pd.merge(df, df_missing, on="patient_id", how="left")
 
         # Sliding window feature extraction (12-hour)
-        window_size = 12
+        window_size = 6,12
         feature_dict = {}
 
         for col in top_shap_features:

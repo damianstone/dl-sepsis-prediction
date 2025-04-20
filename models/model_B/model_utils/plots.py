@@ -90,15 +90,17 @@ def plot_confusion_matrix(y_true, y_pred, class_names=["Negative", "Positive"]):
 
     # Summary statistics
     accuracy = np.trace(cm) / float(np.sum(cm))
-    precision = m.precision_score(y_true, y_pred, average="weighted", zero_division=0)
-    recall = m.recall_score(y_true, y_pred, average="weighted", zero_division=0)
-    f1 = m.f1_score(y_true, y_pred, average="weighted", zero_division=0)
+    precision = m.precision_score(y_true, y_pred, zero_division=0)
+    recall = m.recall_score(y_true, y_pred, zero_division=0)
+    f1 = m.f1_score(y_true, y_pred, zero_division=0)
+    f2 = m.fbeta_score(y_true, y_pred, beta=2, zero_division=0)
 
     stats_text = f"""
     Accuracy = {accuracy:.2%}
     Precision = {precision:.2%}
     Recall = {recall:.2%}
     F1 Score = {f1:.2%}
+    F2 Score = {f2:.2%}
     """
     plt.gcf().text(-0.3, 0, stats_text, fontsize=9, va="bottom")
 

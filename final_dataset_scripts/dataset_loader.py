@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-types = ["no_sampling", "oversampling", "undersampling"]
+types = ["no_sampling", "oversampled", "undersampled"]
 
 
 def find_project_root(marker=".gitignore"):
@@ -19,9 +19,13 @@ def find_project_root(marker=".gitignore"):
     )
 
 
-def load_train_data(type) -> dict:
+def load_train_data(type, fraction: float = 1.0) -> dict:
     """
     Loads the final dataset for a given type.
+
+    Args:
+        type: Type of dataset to load (no_sampling, oversampled, undersampled)
+        fraction: Fraction of patients to sample (default: 1.0 = all patients)
     """
     root = find_project_root()
     if type not in types:
@@ -32,6 +36,20 @@ def load_train_data(type) -> dict:
         )
     except Exception:
         raise FileNotFoundError(f"Dataset for type {type} not found.")
+
+    if fraction < 1.0:
+        # Group by patient_id and get the max SepsisLabel for each patient
+        patient_labels = (
+            train_df.groupby("patient_id")["SepsisLabel"].max().reset_index()
+        )
+
+        # Stratified sampling of patient IDs based on their SepsisLabel
+        sampled_patients = patient_labels.groupby(
+            "SepsisLabel", group_keys=False
+        ).apply(lambda x: x.sample(frac=fraction, random_state=42))
+
+        # Filter the original dataframe to include only the sampled patients
+        train_df = train_df[train_df["patient_id"].isin(sampled_patients["patient_id"])]
 
     data_splits = {
         "X": train_df.drop(columns=["SepsisLabel", "patient_id"]),
