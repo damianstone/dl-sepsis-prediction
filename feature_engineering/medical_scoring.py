@@ -23,6 +23,7 @@ New columns added to input DataFrame:
     - qSOFA_Resp_score, qSOFA_SBP_score, qSOFA_score
 """
 
+import unittest
 from pathlib import Path
 
 import pandas as pd
@@ -371,7 +372,220 @@ def add_medical_scores(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def test_functions():
+NaN = float("nan")  # convenience alias
+
+
+class TestSOFASubScores(unittest.TestCase):
+    def test_renal(self):
+        cases = [
+            (NaN, 0),
+            (0.8, 0),
+            (1.14, 0),  # just below threshold
+            (1.20, 1),
+            (1.9, 1),
+            (2.0, 2),
+            (3.4, 2),
+            (3.5, 3),
+            (4.96, 4),
+            (5.0, 4),
+        ]
+        for creatinine, expected in cases:
+            with self.subTest(creatinine=creatinine):
+                self.assertEqual(sofa_renal_score(creatinine), expected)
+
+    def test_coagulation(self):
+        cases = [
+            (NaN, 0),
+            (200, 0),
+            (150, 1),
+            (101, 1),
+            (100, 2),
+            (51, 2),
+            (50, 3),
+            (21, 3),
+            (20, 4),
+        ]
+        for platelets, expected in cases:
+            with self.subTest(platelets=platelets):
+                self.assertEqual(sofa_coagulation_score(platelets), expected)
+
+    def test_liver(self):
+        cases = [
+            (NaN, 0),
+            (0.5, 0),
+            (1.14, 0),
+            (1.2, 1),
+            (1.9, 1),
+            (2.0, 2),
+            (5.9, 2),
+            (6.0, 3),
+            (11.96, 4),
+            (12.0, 4),
+        ]
+        for bilirubin, expected in cases:
+            with self.subTest(bilirubin=bilirubin):
+                self.assertEqual(sofa_liver_score(bilirubin), expected)
+
+    def test_respiratory(self):
+        # Based on implementation: PaO2 = (SaO2 - 30)*2; ratio = PaO2 / FiO2
+        # Score: >400→0; >300→1; >200→2; >100→3; else→4
+        cases = [
+            (NaN, 0.21, 0),  # missing SaO2
+            (95, NaN, 0),  # missing FiO2
+            (95, 0.0, 0),  # FiO2 zero treated as missing
+            (95, 0.21, 0),  # ratio ≈619 → 0
+            (92, 0.30, 0),  # ratio ≈413 → 0
+            (88, 0.35, 1),  # ratio ≈331 → 1
+            (90, 0.90, 3),  # ratio ≈133 → 3
+            (85, 1.0, 3),  # ratio = 110 → 3
+            (80, 0.25, 1),  # ratio = 400 → 1 (boundary)
+        ]
+        for sao2, fio2, expected in cases:
+            with self.subTest(sao2=sao2, fio2=fio2):
+                self.assertEqual(sofa_respiratory_score(sao2, fio2), expected)
+
+    def test_aggregate(self):
+        df = pd.DataFrame(
+            {
+                "Creatinine": [0.8, 5.2],
+                "Platelets": [250, 15],
+                "Bilirubin_total": [0.9, 15.0],
+                "SaO2": [97, 80],
+                "FiO2": [0.21, 1.0],
+            }
+        )
+        df = add_sofa_scores(df)
+        # row 0 all zeros
+        self.assertEqual(df.loc[0, "SOFA_score"], 0)
+        # row 1 has 4 in every domain → 16 total
+        self.assertEqual(df.loc[1, "SOFA_score"], 16)
+
+
+class TestNEWSSubScores(unittest.TestCase):
+    def test_hr(self):
+        cases = [(NaN, 0), (35, 3), (45, 1), (70, 0), (100, 1), (120, 2), (131, 3)]
+        for hr, expected in cases:
+            with self.subTest(hr=hr):
+                self.assertEqual(news_hr_score(hr), expected)
+
+    def test_resp(self):
+        cases = [(NaN, 0), (8, 3), (10, 1), (16, 0), (22, 2), (25, 3)]
+        for resp, expected in cases:
+            with self.subTest(resp=resp):
+                self.assertEqual(news_resp_score(resp), expected)
+
+    def test_temp(self):
+        cases = [(NaN, 0), (34.9, 3), (35.5, 1), (37.0, 0), (38.5, 1), (40.2, 2)]
+        for temp, expected in cases:
+            with self.subTest(temp=temp):
+                self.assertEqual(news_temp_score(temp), expected)
+
+    def test_sbp(self):
+        cases = [(NaN, 0), (85, 3), (95, 2), (105, 1), (150, 0), (225, 3)]
+        for sbp, expected in cases:
+            with self.subTest(sbp=sbp):
+                self.assertEqual(news_sbp_score(sbp), expected)
+
+    def test_o2sat(self):
+        cases = [(NaN, 0), (90, 3), (92, 2), (95, 1), (98, 0)]
+        for sat, expected in cases:
+            with self.subTest(sat=sat):
+                self.assertEqual(news_o2sat_score(sat), expected)
+
+    def test_supplemental_o2(self):
+        cases = [(NaN, 0), (0.21, 0), (0.30, 2)]
+        for fio2, expected in cases:
+            with self.subTest(fio2=fio2):
+                self.assertEqual(news_supplemental_o2_score(fio2), expected)
+
+    def test_aggregate(self):
+        df = pd.DataFrame(
+            {
+                "HR": [70, 150],
+                "Resp": [16, 27],
+                "Temp": [37.0, 34.0],
+                "SBP": [120, 85],
+                "O2Sat": [97, 88],
+                "FiO2": [0.21, 0.60],
+            }
+        )
+        df = add_news_scores(df)
+        self.assertEqual(df.loc[0, "NEWS_score"], 0)
+        self.assertEqual(df.loc[1, "NEWS_score"], 3 + 3 + 3 + 3 + 3 + 2)
+
+
+class TestQSOFASubScores(unittest.TestCase):
+    def test_resp(self):
+        cases = [(NaN, 0), (20, 0), (22, 1), (30, 1)]
+        for resp, expected in cases:
+            with self.subTest(resp=resp):
+                self.assertEqual(qsofa_resp_score(resp), expected)
+
+    def test_sbp(self):
+        cases = [(NaN, 0), (120, 0), (100, 1), (80, 1)]
+        for sbp, expected in cases:
+            with self.subTest(sbp=sbp):
+                self.assertEqual(qsofa_sbp_score(sbp), expected)
+
+    def test_gcs(self):
+        cases = [(NaN, 0), (15, 0), (14, 1), (5, 1)]
+        for gcs, expected in cases:
+            with self.subTest(gcs=gcs):
+                self.assertEqual(qsofa_gcs_score(gcs), expected)
+
+    def test_aggregate(self):
+        df = pd.DataFrame({"Resp": [18, 25], "SBP": [120, 90]})
+        df = add_qsofa_score(df)
+        self.assertEqual(df.loc[0, "qSOFA_score"], 0)
+        self.assertEqual(df.loc[1, "qSOFA_score"], 2)
+
+
+class TestCombinedWrapper(unittest.TestCase):
+    def test_add_medical_scores_columns(self):
+        """Smoke test to confirm all expected columns are added."""
+        df = pd.DataFrame(
+            {
+                "Creatinine": [0.8],
+                "Platelets": [250],
+                "Bilirubin_total": [0.9],
+                "SaO2": [97],
+                "FiO2": [0.21],
+                "HR": [70],
+                "Resp": [16],
+                "Temp": [37.0],
+                "SBP": [120],
+                "O2Sat": [97],
+            }
+        )
+        df = add_medical_scores(df)
+        expected = {
+            # SOFA
+            "SOFA_Creatinine",
+            "SOFA_Platelets",
+            "SOFA_Bilirubin_total",
+            "SOFA_SaO2_FiO2",
+            "SOFA_score",
+            # NEWS
+            "NEWS_HR_score",
+            "NEWS_Resp_score",
+            "NEWS_Temp_score",
+            "NEWS_SBP_score",
+            "NEWS_O2Sat_score",
+            "NEWS_FiO2_score",
+            "NEWS_score",
+            # qSOFA
+            "qSOFA_Resp_score",
+            "qSOFA_SBP_score",
+            "qSOFA_score",
+        }
+        self.assertEqual(
+            set(expected).issubset(df.columns),
+            True,
+            msg=f"Missing columns: {expected.difference(df.columns)}",
+        )
+
+
+def test_df():
     """
     Test the scoring functions by loading a dataset and applying all scores.
     """
@@ -401,6 +615,7 @@ def test_functions():
 
 
 if __name__ == "__main__":
-    df = test_functions()
+    df = test_df()
     print(df.columns)
     print("TESTS PASSED")
+    unittest.main()
