@@ -23,6 +23,47 @@ def find_project_root(marker=".gitignore"):
     )
 
 
+def calculate_scores(df):
+    """
+    calculate the scores for each measurement value as save it as a new feature
+    for example:
+      HR_SOFA
+      HR_NEWS
+      HR_qSOFA
+      O2Sat_SOFA
+      O2Sat_NEWS
+      O2Sat_qSOFA
+
+    it also adds the general scores for each patient:
+      SOFA
+      NEWS
+      qSOFA
+
+    Breaking down scores by individual measurements (HR_SOFA, HR_NEWS) helps the model understand
+    how each vital sign contributes to overall risk, enabling better pattern recognition across
+    time series data.
+    """
+    df = df.copy()
+
+
+def aggregate_global_score_features(df, suffix="global"):
+    """
+    calculate statistical features (mean, max, last value) from clinical scores over time windows.
+    This helps capture disease progression patterns and temporal trends,
+    which are crucial for predicting sepsis development.
+    """
+    scores = {}
+    for score_name in ["SOFA", "NEWS", "qSOFA"]:
+        series = df[score_name].dropna()
+        scores[f"{score_name}_mean_{suffix}"] = series.mean()
+        scores[f"{score_name}_median_{suffix}"] = series.median()
+        scores[f"{score_name}_max_{suffix}"] = series.max()
+        scores[f"{score_name}_last_{suffix}"] = (
+            series.iloc[-1] if not series.empty else np.nan
+        )
+    return scores
+
+
 def aggregate_window_features(df, cols, suffix):
     """
     This function analyzes vital signs over 6-hour windows, calculating statistics
@@ -33,46 +74,16 @@ def aggregate_window_features(df, cols, suffix):
     for col in cols:
         series = df[col].dropna()
         stats[f"{col}_mean_{suffix}"] = series.mean()
+        stats[f"{col}_median_{suffix}"] = series.median()
         stats[f"{col}_std_{suffix}"] = series.std()
         stats[f"{col}_min_{suffix}"] = series.min()
         stats[f"{col}_max_{suffix}"] = series.max()
         stats[f"{col}_last_{suffix}"] = series.iloc[-1] if not series.empty else np.nan
-        # TODO: include median
-        # TODO: include standard deviation
 
         is_missing = df[col].isna()
         stats[f"{col}_missing_count_{suffix}"] = is_missing.sum()
         stats[f"{col}_missing_rate_{suffix}"] = is_missing.mean()
     return stats
-
-
-def aggregate_scores(df, suffix="global"):
-    """
-    calculate statistical features (mean, max, last value) from clinical scores over time windows.
-    This helps capture disease progression patterns and temporal trends,
-    which are crucial for predicting sepsis development.
-    """
-    # NOTE: sofa, qsofa and news will be already at this point
-    return {
-        f"SOFA_mean_{suffix}": sofa_scores.mean(),
-        f"SOFA_max_{suffix}": sofa_scores.max(),
-        f"SOFA_last_{suffix}": (
-            sofa_scores.iloc[-1] if not sofa_scores.empty else np.nan
-        ),
-        # TODO: include median
-        f"NEWS_mean_{suffix}": news_scores.mean(),
-        f"NEWS_max_{suffix}": news_scores.max(),
-        f"NEWS_last_{suffix}": (
-            news_scores.iloc[-1] if not news_scores.empty else np.nan
-        ),
-        # TODO: include median
-        f"qSOFA_mean_{suffix}": qsofa_scores.mean(),
-        f"qSOFA_max_{suffix}": qsofa_scores.max(),
-        f"qSOFA_last_{suffix}": (
-            qsofa_scores.iloc[-1] if not qsofa_scores.empty else np.nan
-        ),
-        # TODO: include median
-    }
 
 
 def generate_window_features(df, cols):
@@ -90,15 +101,85 @@ def generate_window_features(df, cols):
       HR_last_6h
       HR_missing_count_6h
       HR_missing_rate_6h
+
+    For each patient:
+
+    1. Sort rows by ICU stay time (`ICULOS`).
+    2. For each row, look back at the last 6 rows (6-hour window).
+    3. If there are 6 or more rows: compute stats (mean, std, min, max, last, missing count, missing rate).
+    4. If fewer than 6 rows: fill all stats with zero.
+    5. Save the stats into the current row.
+    6. After all patients are processed, return the full dataset with new features.
     """
     df = df.copy()
+    all_rows = []
+
+    for pid, group in df.groupby("patient_id"):
+        group = group.sort_values("ICULOS").copy()
+        for i in range(len(group)):
+            if i >= 6:
+                window = group.iloc[i - 6: i]
+                stats = aggregate_window_features(window, cols, suffix="6h")
+            else:
+                stats = {
+                    f"{col}_{stat}_6h": 0
+                    for col in cols
+                    for stat in [
+                        "mean",
+                        "median",
+                        "std",
+                        "min",
+                        "max",
+                        "last",
+                        "missing_count",
+                        "missing_rate",
+                    ]
+                }
+            for k, v in stats.items():
+                group.loc[group.index[i], k] = v
+        all_rows.append(group)
+
+    return pd.concat(all_rows).reset_index(drop=True)
+
+
+def compute_missingness_summary(df, cols):
+    summary = {}
+    for col in cols:
+        series = df[col]
+        is_missing = series.isna()
+        summary[f"{col}_missing_count_global"] = is_missing.sum()
+
+        last_seen = None
+        intervals = []
+        for i, val in enumerate(series):
+            if pd.notna(val):
+                last_seen = i
+            elif last_seen is not None:
+                intervals.append(i - last_seen)
+            else:
+                intervals.append(-1)
+        valid_intervals = [v for v in intervals if v >= 0]
+        summary[f"{col}_missing_interval_mean_global"] = (
+            np.mean(valid_intervals) if valid_intervals else -1
+        )
+    return summary
 
 
 def generate_missingness_features(raw_df, imputed_df, df_with_features):
     """
     This function generates missingness features for each patient.
     """
-    df.copy()
+    selected_cols = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
+    missing_rows = []
+
+    for pid, group in raw_df.groupby("patient_id"):
+        summary = compute_missingness_summary(group, selected_cols)
+        summary["patient_id"] = pid
+        missing_rows.append(summary)
+
+    df_missing = pd.DataFrame(missing_rows)
+    df_merged = pd.merge(df_with_features, df_missing, on="patient_id", how="left")
+    return df_merged
 
 
 def print_new_columns(df_features, imputed_df):
