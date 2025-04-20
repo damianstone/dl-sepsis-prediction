@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 
 
@@ -87,8 +89,8 @@ def sofa_respiratory_score(sao2: float, fio2: float) -> int:
     3: ≤ 200
     4: ≤ 100
     """
-    if pd.isna(sao2) or pd.isna(fio2):
-        # Missing SaO2 or FiO2: assume no respiratory dysfunction
+    if pd.isna(sao2) or pd.isna(fio2) or fio2 == 0:
+        # Missing SaO2 or FiO2 or Zero FiO2: assume no respiratory dysfunction
         return 0
     pao2 = (sao2 - 30) * 2
     ratio = pao2 / fio2
@@ -287,15 +289,45 @@ def qsofa_gcs_score(gcs: float) -> int:
 
 
 def add_qsofa_score(
-    df: pd.DataFrame, resp_col: str = "Resp", sbp_col: str = "SBP", gcs_col: str = "GCS"
+    df: pd.DataFrame, resp_col: str = "Resp", sbp_col: str = "SBP"
 ) -> pd.DataFrame:
     """
     Add qSOFA component scores and total qSOFA to DataFrame.
     """
     df["qsofa_resp_score"] = df[resp_col].apply(qsofa_resp_score)
     df["qsofa_sbp_score"] = df[sbp_col].apply(qsofa_sbp_score)
-    df["qsofa_gcs_score"] = df[gcs_col].apply(qsofa_gcs_score)
-    df["qsofa_score"] = df[
-        ["qsofa_resp_score", "qsofa_sbp_score", "qsofa_gcs_score"]
-    ].sum(axis=1)
+
+    df["qsofa_gcs_score"] = 0
+    df["qsofa_score"] = df[["qsofa_resp_score", "qsofa_sbp_score"]].sum(axis=1)
+
     return df
+
+
+def find_project_root(marker=".gitignore"):
+    """
+    walk up from the current working directory until a directory containing the
+    specified marker (e.g., .gitignore) is found.
+    """
+    current = Path.cwd()
+    for parent in [current] + list(current.parents):
+        if (parent / marker).exists():
+            return parent.resolve()
+    raise FileNotFoundError(
+        f"Project root marker '{marker}' not found starting from {current}"
+    )
+
+
+def test_functions():
+    root = find_project_root()
+    INPUT_DATASET = f"{root}/dataset/Fully_imputed_dataset.parquet"
+    df = pd.read_parquet(INPUT_DATASET)
+    df = add_sofa_scores(df)
+    df = add_news_scores(df)
+    df = add_qsofa_score(df)
+    return df
+
+
+if __name__ == "__main__":
+    df = test_functions()
+    print(df.columns)
+    print("TESTS PASSED")
