@@ -64,16 +64,17 @@ def aggregate_global_score_features(df, suffix="global"):
     'SOFA_max_global': 6.0,      # Highest SOFA
     'SOFA_last_global': 4.0      # Final SOFA
     """
-    scores = {}
-    for score_name in ["SOFA_score", "NEWS_score", "qSOFA_score"]:
-        series = df[score_name].dropna()
-        scores[f"{score_name}_mean_{suffix}"] = series.mean()
-        scores[f"{score_name}_median_{suffix}"] = series.median()
-        scores[f"{score_name}_max_{suffix}"] = series.max()
-        scores[f"{score_name}_last_{suffix}"] = (
-            series.iloc[-1] if not series.empty else np.nan
-        )
-    return scores
+    df = df.copy()
+    for pid, group in df.groupby("patient_id"):
+        for score_name in ["SOFA_score", "NEWS_score", "qSOFA_score"]:
+            series = group[score_name].dropna()
+            df.loc[group.index, f"{score_name}_mean_global"] = series.mean()
+            df.loc[group.index, f"{score_name}_median_global"] = series.median()
+            df.loc[group.index, f"{score_name}_max_global"] = series.max()
+            df.loc[group.index, f"{score_name}_last_global"] = (
+                series.iloc[-1] if not series.empty else np.nan
+            )
+    return df
 
 
 def aggregate_window_features(df, cols, suffix):
@@ -250,35 +251,31 @@ def preprocess_data(raw_file, imputed_file, output_file):
     imputed_df = pd.read_parquet(imputed_file)
     df_features = imputed_df.copy()
 
-    # 1: AIDEN
     # Add medical scoring features including: SOFA, NEWS, qSOFA and component scores
     df_features = calculate_scores(df_features)
     print("CALCULATE SCORES DONE")
 
+    # aggregate global scores for each time step
+    df_features = aggregate_global_score_features(df_features)
+    print("AGGREGATE GLOBAL SCORES DONE")
+
+    # missingness features
     df_features = generate_missingness_features(raw_df, imputed_df, df_features)
     print("GENERATE MISSINGNESS FEATURES DONE")
 
-    # 3: ZHOU
     # six-hour slide window statistics of selected columns
     columns = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
     df_features = generate_window_features(df_features, columns)
     print("GENERATE WINDOW FEATURES DONE")
-    # 4: ZHOU
-    # missingness features
 
-    # 5: DON'T CARE
     # drop useless columns
     df_features = df_features.drop(columns=["Unit1", "Unit2", "cluster_id", "dataset"])
     print("DROP USELESS COLUMNS DONE")
-    # 6: DON'T CARE
     # handle gender as a categorical variable
     df_features["Gender"] = LabelEncoder().fit_transform(
         df_features["Gender"].astype(str)
     )
     print("HANDLE GENDER DONE")
-
-    # 7: DON'T CARE
-    # scale the features - min max scaler ? discuss this later
 
     # NOTE: before save the data, print the following checks:
     # print a check for nan values (should not be any)
