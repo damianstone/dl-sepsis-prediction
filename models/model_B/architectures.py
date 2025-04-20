@@ -46,12 +46,13 @@ class PositionalEncoding(nn.Module):
         # we use sine and cosine to represent the time and position of each patient event (record)
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
+        # change to (max_len, 1, d_model) to match sequence-first format
+        pe = pe.unsqueeze(1)
         self.register_buffer("pe", pe)
 
     def forward(self, x):
         # x: (seq_len, batch_size, d_model)
-        x = x + self.pe[:, : x.size(0), :]
+        x = x + self.pe[: x.size(0)]  # Now pe will broadcast correctly
         return self.dropout(x)
 
 
@@ -79,7 +80,7 @@ class TransformerTimeSeries(nn.Module):
         # Adjust mask shape: collate_fn returns mask as (seq_len, batch_size),
         # but TransformerEncoder expects src_key_padding_mask as (batch_size, seq_len)
         if mask is not None:
-            mask = ~mask
+            mask = ~mask.transpose(0, 1)
 
         x = self.encoder(x, src_key_padding_mask=mask)  # (seq_len, batch_size, d_model)
 

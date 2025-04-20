@@ -58,9 +58,7 @@ def get_next_predict_dir(base_dir):
 
 def evaluate_on_test_set(model_path, features, save_dir):
     root = find_project_root()
-    test_path = (
-        root / "dataset" / "feature_engineering" / "test_balanced.parquet"
-    )
+    test_path = root / "dataset" / "feature_engineering" / "test_balanced.parquet"
     df = pd.read_parquet(test_path)
     if "patient_id" not in df.columns:
         df.reset_index(inplace=True)

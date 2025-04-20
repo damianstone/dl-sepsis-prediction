@@ -28,8 +28,7 @@ def remove_highly_correlated_features_global(df, threshold=0.85):
 
 def filter_balanced_dataset_main():
     input_path = Path("dataset/feature_engineering/balanced_dataset.parquet")
-    output_path = Path(
-        "dataset/feature_engineering/balanced_dataset_filtered.parquet")
+    output_path = Path("dataset/feature_engineering/balanced_dataset_filtered.parquet")
     report_path = Path("dataset/feature_engineering/correlation_report.csv")
 
     df = pd.read_parquet(input_path)

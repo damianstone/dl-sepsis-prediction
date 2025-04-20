@@ -1,8 +1,7 @@
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
-import torch
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
 
 
 def find_project_root(marker=".gitignore"):
@@ -15,7 +14,8 @@ def find_project_root(marker=".gitignore"):
         if (parent / marker).exists():
             return parent.resolve()
     raise FileNotFoundError(
-        f"Project root marker '{marker}' not found starting from {current}")
+        f"Project root marker '{marker}' not found starting from {current}"
+    )
 
 
 def score_by_value(value, thresholds):
@@ -105,6 +105,7 @@ def aggregate_scores(df, suffix="global"):
         ),
     }
 
+
 def compute_missingness_summary(df, cols):
     summary = {}
     for col in cols:
@@ -127,19 +128,18 @@ def compute_missingness_summary(df, cols):
         )
     return summary
 
-def preprocess_data(imputed_file, raw_file, output_file):
 
+def preprocess_data(imputed_file, raw_file, output_file):
 
     df_imputed = pd.read_parquet(imputed_file)
     df_raw = pd.read_parquet(raw_file)
 
-    selected_cols = ['HR', 'O2Sat', 'SBP', 'MAP', 'Resp']
+    selected_cols = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
 
     all_rows = []
 
     for pid, group in df_imputed.groupby("patient_id"):
         group = group.sort_values("ICULOS").copy()
-
 
         group["SOFA"] = group.apply(lambda row: calculate_sofa(group, row), axis=1)
         group["NEWS"] = group.apply(calculate_news, axis=1)
@@ -151,12 +151,23 @@ def preprocess_data(imputed_file, raw_file, output_file):
 
         for i in range(len(group)):
             if i >= 6:
-                window = group.iloc[i - 6:i]
+                window = group.iloc[i - 6 : i]
                 stats = aggregate_window_features(window, selected_cols, suffix="6h")
             else:
-                stats = {f"{col}_{stat}_6h": 0 for col in selected_cols for stat in ["mean", "std", "min", "max", "last"]}
+                stats = {
+                    f"{col}_{stat}_6h": 0
+                    for col in selected_cols
+                    for stat in ["mean", "std", "min", "max", "last"]
+                }
             for k, v in stats.items():
-                group.iloc[i, group.columns.get_loc(k) if k in group.columns else len(group.columns)] = v
+                group.iloc[
+                    i,
+                    (
+                        group.columns.get_loc(k)
+                        if k in group.columns
+                        else len(group.columns)
+                    ),
+                ] = v
 
         all_rows.append(group)
 
@@ -169,11 +180,13 @@ def preprocess_data(imputed_file, raw_file, output_file):
         missing_rows.append(summary)
     df_missing = pd.DataFrame(missing_rows)
 
- 
     df_final = pd.merge(df_final, df_missing, on="patient_id", how="left")
 
-    df_final.drop(columns=["Unit1", "Unit2", "cluster_id", "dataset"], errors="ignore", inplace=True)
-
+    df_final.drop(
+        columns=["Unit1", "Unit2", "cluster_id", "dataset"],
+        errors="ignore",
+        inplace=True,
+    )
 
     print("Any NaN:", df_final.isna().sum().sum() > 0)
     print("New columns:", list(df_final.columns))
@@ -181,7 +194,7 @@ def preprocess_data(imputed_file, raw_file, output_file):
 
     df_final.to_parquet(output_file, index=False)
     print(f"Full time-series feature set saved to: {output_file}")
-   
+
     print(f"Preprocessed data saved to {output_file}")
 
 
@@ -190,4 +203,4 @@ if __name__ == "__main__":
     RAW_DATASET = f"{root}/dataset/raw_combined_data.parquet"
     INPUT_DATASET = f"{root}/dataset/Fully_imputed_dataset.parquet"
     OUTPUT_DATASET = f"{root}/dataset/V2_preprocessed.parquet"
-    preprocess_data(INPUT_DATASET,RAW_DATASET,OUTPUT_DATASET)
+    preprocess_data(INPUT_DATASET, RAW_DATASET, OUTPUT_DATASET)
