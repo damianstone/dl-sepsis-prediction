@@ -91,19 +91,58 @@ def generate_window_features(df, cols):
       HR_missing_count_6h
       HR_missing_rate_6h
     """
-    df = df.copy()
+    df_out = []
+    for pid, group in df.groupby("patient_id"):
+        group = group.sort_values("ICULOS").copy()
+        group_features = group.copy()
+        for i in range(len(group)):
+            if i >= 6:
+                window = group.iloc[i - 6:i]
+                stats = aggregate_window_features(window, cols, suffix="6h")
+            else:
+                stats = {
+                    f"{col}_{stat}_6h": 0
+                    for col in cols
+                    for stat in ["mean", "std", "min", "max", "last"]
+                }
+            for k, v in stats.items():
+                group_features.at[group.index[i], k] = v
+        df_out.append(group_features)
+    return pd.concat(df_out)
 
 
-def generate_missingness_features(raw_df, imputed_df, df_with_features):
-    """
-    This function generates missingness features for each patient.
-    """
-    df.copy()
+
+def generate_missingness_features(raw_df, imputed_df, df_features):
+    
+    #missing count、missing rate
+    
+    selected_cols = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
+    missingness_rows = []
+
+    for pid, group in raw_df.groupby("patient_id"):
+        row = {"patient_id": pid}
+        for col in selected_cols:
+            is_missing = group[col].isna()
+            row[f"{col}_missing_count"] = is_missing.sum()
+            row[f"{col}_missing_rate"] = is_missing.mean()
+            
+            missing_indices = group[is_missing].index.to_list()
+            if len(missing_indices) >= 2:
+                gaps = np.diff(missing_indices)
+                row[f"{col}_missing_interval_avg"] = np.mean(gaps)
+            else:
+                row[f"{col}_missing_interval_avg"] = 0
+        missingness_rows.append(row)
+
+    df_missing = pd.DataFrame(missingness_rows)
+    df_features = pd.merge(df_features, df_missing, on="patient_id", how="left")
+    return df_features
 
 
 def print_new_columns(df_features, imputed_df):
     new_columns = set(df_features.columns) - set(imputed_df.columns)
     print(f"New columns added: {new_columns}")
+
 
 
 def preprocess_data(raw_file, imputed_file, output_file):
