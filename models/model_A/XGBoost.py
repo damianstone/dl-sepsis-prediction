@@ -54,7 +54,7 @@ def load_top_features(n=20):
 def load_data(features):
     root = find_project_root()
     data_path = (
-        root / "dataset" / "XGBoost" / "feature_engineering" / "train_balanced.parquet"
+        root / "dataset" / "feature_engineering" / "train_balanced.parquet"
     )
     df = pd.read_parquet(data_path)
     if not isinstance(df.index, pd.MultiIndex):
