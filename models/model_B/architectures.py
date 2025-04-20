@@ -50,7 +50,8 @@ class PositionalEncoding(nn.Module):
         self.register_buffer("pe", pe)
 
     def forward(self, x):
-        x = x + self.pe[:, : x.size(1)]
+        # x: (seq_len, batch_size, d_model)
+        x = x + self.pe[:, : x.size(0), :]
         return self.dropout(x)
 
 
@@ -78,12 +79,11 @@ class TransformerTimeSeries(nn.Module):
         # Adjust mask shape: collate_fn returns mask as (seq_len, batch_size),
         # but TransformerEncoder expects src_key_padding_mask as (batch_size, seq_len)
         if mask is not None:
-            mask = ~mask.bool()  # invert mask (still shape: (seq_len, batch_size))
-            mask = mask.transpose(0, 1)  # now (batch_size, seq_len)
+            mask = ~mask
 
         x = self.encoder(x, src_key_padding_mask=mask)  # (seq_len, batch_size, d_model)
 
         # Pool over the sequence dimension (now dimension 0) to get one representation per batch element
-        x = x.mean(dim=0)  # (batch_size, d_model)
+        x = x.max(dim=0).values  # max pooling over time
         x = self.linear_layer(x).squeeze(-1)  # (batch_size)
         return x
