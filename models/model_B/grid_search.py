@@ -304,7 +304,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     total_iterations = 4
 
     num_heads = 4
-    drop_out = 0.1
+    drop_out = 0.2
     for d_model in [128]:
         for num_layers in [2]:
             iterations += 1
@@ -350,7 +350,7 @@ def pipeline():
     val_data = get_data(config, "val")
     test_data = get_data(config, "test")
     best_models = {}
-    for dataset_type in ["undersampled"]:
+    for dataset_type in ["oversampled"]:
         print(f"Running grid search for {dataset_type}")
         config_new = copy.deepcopy(config)
         config_new["dataset_type"] = dataset_type

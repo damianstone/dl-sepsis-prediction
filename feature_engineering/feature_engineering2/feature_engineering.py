@@ -117,7 +117,6 @@ def compute_missingness_summary(df, cols):
 
 def generate_multiwindow_features(df, feature_cols, window_size=6):
     patient_rows = []
-    
 
     for pid, group in df.groupby("patient_id"):
         row = {"patient_id": pid}
@@ -151,6 +150,7 @@ def generate_multiwindow_features(df, feature_cols, window_size=6):
 
     return pd.DataFrame(patient_rows)
 
+
 def run_multiwindow_feature_engineering():
     input_path = Path("dataset/feature_engineering/balanced_dataset_filtered.parquet")
     raw_path = Path("dataset/raw_combined_data.parquet")
@@ -159,13 +159,19 @@ def run_multiwindow_feature_engineering():
     if "ICULOS" not in df.columns and "ICULOS" in df.index.names:
         df = df.reset_index()
 
-    exclude_cols = ["patient_id", "ICULOS", "SepsisLabel", "SepsisLabel_patient", "Age", "Gender"]
+    exclude_cols = [
+        "patient_id",
+        "ICULOS",
+        "SepsisLabel",
+        "SepsisLabel_patient",
+        "Age",
+        "Gender",
+    ]
     feature_cols = [col for col in df.columns if col not in exclude_cols]
     print(f"Using {len(feature_cols)} physiological features:\n{feature_cols}")
 
     df_raw = pd.read_parquet(raw_path)
     df_raw = df_raw.reset_index()
-
 
     missingness_rows = []
     for pid, group in df_raw.groupby("patient_id"):
@@ -188,8 +194,6 @@ def run_multiwindow_feature_engineering():
     df_feat.head(10).to_csv(preview_path, index=False)
     print(f"\nSaved patient-level multi-window features to: {output_path}")
     print(f"Preview saved to: {preview_path}")
-
-
 
 
 if __name__ == "__main__":
