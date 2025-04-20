@@ -111,7 +111,7 @@ def aggregate_scores(df, suffix="global"):
     }
 
 
-def preprocess_data(input_file, output_file):
+def preprocess_data(raw_file, imputed_file, output_file):
     # make functions for the following:
     # sofa
     # qsofa
@@ -119,6 +119,7 @@ def preprocess_data(input_file, output_file):
     # agregate window features
     # aggregate_scores
     # generate_multiwindow_features (only 6h)
+    # missingness_features(raw_file, imputed_file)
     # drop columns = ["Unit1", "Unit2", "cluster_id", "dataset"]
 
     # check for nan values (should not be any)
@@ -129,6 +130,7 @@ def preprocess_data(input_file, output_file):
 
 if __name__ == "__main__":
     root = find_project_root()
+    RAW_DATASET = f"{root}/dataset/raw_combined_data.parquet"
     INPUT_DATASET = f"{root}/dataset/Fully_imputed_dataset.parquet"
     OUTPUT_DATASET = f"{root}/dataset/V2_preprocessed.parquet"
     preprocess_data(OUTPUT_DATASET)
