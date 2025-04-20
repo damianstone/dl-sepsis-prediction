@@ -79,14 +79,14 @@ def setup_base_config():
             "model": "time_series",
         },
         "training": {
-            "batch_size": 128,
-            "use_post_weight": False,
-            "max_post_weight": 1,
-            "lr": 0.001,
+            "batch_size": 256,
+            "use_post_weight": True,
+            "max_post_weight": 5,
+            "lr": 0.0001,
             "epochs": 1000,
         },
         "testing": {
-            "batch_size": 128,
+            "batch_size": 256,
             "threshold": 0.5,
         },
     }
@@ -272,6 +272,7 @@ def get_data(config, type):
         batch_size=config["testing" if type == "test" else "training"]["batch_size"],
         shuffle=True,
         collate_fn=collate_fn,
+        num_workers=12,
     )
 
     return DataWrapper.from_map(
@@ -303,7 +304,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     total_iterations = 4
 
     num_heads = 4
-    drop_out = 0.2
+    drop_out = 0.1
     for d_model in [128]:
         for num_layers in [2]:
             iterations += 1
@@ -349,7 +350,7 @@ def pipeline():
     val_data = get_data(config, "val")
     test_data = get_data(config, "test")
     best_models = {}
-    for dataset_type in ["oversampled"]:
+    for dataset_type in ["undersampled"]:
         print(f"Running grid search for {dataset_type}")
         config_new = copy.deepcopy(config)
         config_new["dataset_type"] = dataset_type

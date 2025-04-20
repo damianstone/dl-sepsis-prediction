@@ -126,7 +126,7 @@ def training_loop(
 ):
     epoch_counter, loss_counter, acc_counter = [], [], []
 
-    patience = 15  # if the validation doesn't improve after K (patience) checks
+    patience = 10  # if the validation doesn't improve after K (patience) checks
     best_f2_score = 0
     epochs_without_improvement = 0
     min_epochs = 50
