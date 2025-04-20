@@ -21,6 +21,8 @@ New columns added to input DataFrame:
     - SOFA_Creatinine, SOFA_Platelets, SOFA_Bilirubin_total, SOFA_SaO2_FiO2, SOFA_score
     - NEWS_HR_score, NEWS_Resp_score, NEWS_Temp_score, NEWS_SBP_score, NEWS_O2Sat_score, NEWS_FiO2_score, NEWS_score
     - qSOFA_Resp_score, qSOFA_SBP_score, qSOFA_score
+    - Shock_Index - mentioned in the winning paper from the challenge
+    - Bilirubin_Ratio - mentioned in the winning paper from the challenge
 """
 
 import unittest
@@ -361,6 +363,22 @@ def find_project_root(marker=".gitignore"):
     )
 
 
+def add_shock_index(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add shock index to the DataFrame.
+    """
+    df["Shock_Index"] = (df["HR"] / df["SBP"]).round(2)
+    return df
+
+
+def add_bilirubin_ratio(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add bilirubin ratio to the DataFrame.
+    """
+    df["Bilirubin_Ratio"] = (df["Bilirubin_total"] / df["Creatinine"]).round(2)
+    return df
+
+
 def add_medical_scores(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add all medical scores (SOFA, NEWS, qSOFA) to the DataFrame.
@@ -369,6 +387,8 @@ def add_medical_scores(df: pd.DataFrame) -> pd.DataFrame:
     df = add_sofa_scores(df)
     df = add_news_scores(df)
     df = add_qsofa_score(df)
+    df = add_shock_index(df)
+    df = add_bilirubin_ratio(df)
     return df
 
 
@@ -592,9 +612,7 @@ def test_df():
     root = find_project_root()
     INPUT_DATASET = f"{root}/dataset/Fully_imputed_dataset.parquet"
     df = pd.read_parquet(INPUT_DATASET)
-    df = add_sofa_scores(df)
-    df = add_news_scores(df)
-    df = add_qsofa_score(df)
+    df = add_medical_scores(df)
     # test if the columns are added correctly
     assert "SOFA_Creatinine" in df.columns
     assert "SOFA_Platelets" in df.columns
@@ -611,6 +629,8 @@ def test_df():
     assert "qSOFA_Resp_score" in df.columns
     assert "qSOFA_SBP_score" in df.columns
     assert "qSOFA_score" in df.columns
+    assert "Shock_Index" in df.columns
+    assert "Bilirubin_Ratio" in df.columns
     return df
 
 

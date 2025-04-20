@@ -2,7 +2,13 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from medical_scoring import add_news_scores, add_qsofa_score, add_sofa_scores
+from medical_scoring import (
+    add_bilirubin_ratio,
+    add_news_scores,
+    add_qsofa_score,
+    add_shock_index,
+    add_sofa_scores,
+)
 from sklearn.preprocessing import LabelEncoder
 
 # continues features
@@ -48,6 +54,8 @@ def calculate_scores(df):
     df = add_sofa_scores(df)
     df = add_news_scores(df)
     df = add_qsofa_score(df)
+    df = add_shock_index(df)
+    df = add_bilirubin_ratio(df)
     return df
 
 
