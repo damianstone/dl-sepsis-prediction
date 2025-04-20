@@ -1,10 +1,10 @@
 xperiment:
-  name: '11_downsampled_64_4_1'
+  name: '13_oversampled_64_4_2'
   model: 'time_series'
 
 data:
   data_file_name: 'preprocessed_data'
-  use_last_processed_data: true
+  use_last_processed_data: false
   sampling: true
   sampling_method: undersample
   sampling_minority_ratio: 0.3
@@ -15,15 +15,15 @@ data:
 model:
   d_model: 64
   num_heads: 4
-  num_layers: 1
+  num_layers: 2
   drop_out: 0.1
 
 training:
   batch_size: 128
   use_post_weight: true
   max_post_weight: 5
-  lr: 0.004
+  lr: 0.001
   epochs: 1000
 
 testing:
-  batch_size: 32
+  batch_size: 128
