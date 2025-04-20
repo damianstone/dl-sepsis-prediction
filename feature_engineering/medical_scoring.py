@@ -2,7 +2,7 @@ import pandas as pd
 
 
 # Original sub-score functions
-def renal_score(creatinine: float) -> int:
+def sofa_renal_score(creatinine: float) -> int:
     """
     Calculate SOFA renal sub-score based on serum creatinine (mg/dL).
     0: < 1.2
@@ -27,7 +27,7 @@ def renal_score(creatinine: float) -> int:
         return 4
 
 
-def coagulation_score(platelets: float) -> int:
+def sofa_coagulation_score(platelets: float) -> int:
     """
     Calculate SOFA coagulation sub-score based on platelet count (×10^3/µL).
     0: > 150
@@ -51,7 +51,7 @@ def coagulation_score(platelets: float) -> int:
         return 4
 
 
-def liver_score(bilirubin: float) -> int:
+def sofa_liver_score(bilirubin: float) -> int:
     """
     Calculate SOFA liver sub-score based on total bilirubin (mg/dL).
     0: < 1.2
@@ -76,7 +76,7 @@ def liver_score(bilirubin: float) -> int:
         return 4
 
 
-def respiratory_score(sao2: float, fio2: float) -> int:
+def sofa_respiratory_score(sao2: float, fio2: float) -> int:
     """
     Calculate SOFA respiratory sub-score using SaO2 and FiO2.
     Estimation: PaO2 ≈ (SaO2 - 30) * 2 for SaO2 > 80%
@@ -105,66 +105,394 @@ def respiratory_score(sao2: float, fio2: float) -> int:
         return 4
 
 
-# DataFrame helper functions
-
-
-def add_renal_score(
-    df: pd.DataFrame, creatinine_col: str = "Creatinine"
-) -> pd.DataFrame:
-    """
-    Add a 'renal_score' column to df based on the Creatinine column.
-    """
-    df["renal_score"] = df[creatinine_col].round(1).apply(renal_score)
-    return df
-
-
-def add_coagulation_score(
-    df: pd.DataFrame, platelets_col: str = "Platelets"
-) -> pd.DataFrame:
-    """
-    Add a 'coagulation_score' column to df based on the Platelets column.
-    """
-    df["coagulation_score"] = df[platelets_col].apply(coagulation_score)
-    return df
-
-
-def add_liver_score(
-    df: pd.DataFrame, bilirubin_col: str = "Bilirubin_total"
-) -> pd.DataFrame:
-    """
-    Add a 'liver_score' column to df based on the Bilirubin_total column.
-    """
-    df["liver_score"] = df[bilirubin_col].round(1).apply(liver_score)
-    return df
-
-
-def add_respiratory_score(
-    df: pd.DataFrame, sao2_col: str = "SaO2", fio2_col: str = "FiO2"
-) -> pd.DataFrame:
-    """
-    Add a 'respiratory_score' column to df using SaO2 and FiO2 columns.
-    """
-    df["respiratory_score"] = df.apply(
-        lambda row: respiratory_score(row[sao2_col], row[fio2_col]), axis=1
-    )
-    return df
-
-
 def add_sofa_scores(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add all SOFA sub-score columns to df and return the augmented DataFrame.
     """
-    df = add_renal_score(df)
-    df = add_coagulation_score(df)
-    df = add_liver_score(df)
-    df = add_respiratory_score(df)
+    # Compute and attach individual SOFA subscores directly
+    df["renal_score"] = df["Creatinine"].round(1).apply(sofa_renal_score)
+    df["coagulation_score"] = df["Platelets"].apply(sofa_coagulation_score)
+    df["liver_score"] = df["Bilirubin_total"].round(1).apply(sofa_liver_score)
+    df["respiratory_score"] = df.apply(
+        lambda row: sofa_respiratory_score(row["SaO2"], row["FiO2"]), axis=1
+    )
+    # Sum into total SOFA score
     df["sofa_score"] = df[
         ["renal_score", "coagulation_score", "liver_score", "respiratory_score"]
     ].sum(axis=1)
     return df
 
 
-# NEWS scoring functions and DataFrame helpers
+def news_sbp_score(sbp: float) -> int:
+    """
+    NEWS sub-score for systolic blood pressure (mmHg).
+    """
+    if pd.isna(sbp):
+        # Missing SBP: assume normal
+        return 0
+    if sbp <= 90:
+        return 3
+    elif 91 <= sbp <= 100:
+        return 2
+    elif 101 <= sbp <= 110:
+        return 1
+    elif 111 <= sbp <= 219:
+        return 0
+    else:  # ≥220
+        return 3
+
+
+def news_o2sat_score(o2sat: float) -> int:
+    """
+    NEWS sub-score for oxygen saturation (%).
+    """
+    if pd.isna(o2sat):
+        # Missing O2 saturation: assume normal
+        return 0
+    if o2sat <= 91:
+        return 3
+    elif 92 <= o2sat <= 93:
+        return 2
+    elif 94 <= o2sat <= 95:
+        return 1
+    else:  # ≥96
+        return 0
+
+
+def news_supplemental_o2_score(fio2: float) -> int:
+    """
+    NEWS sub-score for supplemental oxygen. FiO2 > 0.21 indicates supplemental O₂.
+    """
+    if pd.isna(fio2):
+        # Missing FiO2: assume no supplemental oxygen
+        return 0
+    return 2 if fio2 > 0.21 else 0
+
+
+import numpy as np
+import pandas as pd
+
+sep_col = [
+    "BaseExcess",
+    "HCO3",
+    "FiO2",
+    "pH",
+    "PaCO2",
+    "SaO2",
+    "AST",
+    "BUN",
+    "Alkalinephos",
+    "Calcium",
+    "Chloride",
+    "Creatinine",
+    "Glucose",
+    "Lactate",
+    "Magnesium",
+    "Phosphate",
+    "Potassium",
+    "Bilirubin_total",
+    "Hct",
+    "Hgb",
+    "PTT",
+    "WBC",
+    "Platelets",
+    "Bilirubin_direct",
+    "Fibrinogen",
+]
+
+# Continues Health Indicators
+con_col = ["HR", "O2Sat", "Temp", "SBP", "MAP", "DBP", "Resp", "EtCO2"]
+
+
+def feature_missing_information(patient_data, columns):
+    # temp_data holds the information from the patient file as well as the features that will be calculated
+    temp_data = np.array(patient_data)
+
+    # Calculate 3 features for each column, 2 respective of the frequency of NaN values and 1 respective of the change in recorded values
+    for column in columns:
+        data = np.array(patient_data[column])
+        nan_pos = np.where(~np.isnan(data))[0]
+
+        # Measurement frequency sequence
+        interval_f1 = data.copy()
+        # Measurement time interval
+        interval_f2 = data.copy()
+
+        # If all the values are NaN
+        if len(nan_pos) == 0:
+            interval_f1[:] = 0
+            temp_data = np.column_stack((temp_data, interval_f1))
+            interval_f2[:] = -1
+            temp_data = np.column_stack((temp_data, interval_f2))
+        else:
+            # Puts number of measurements into temp_data
+            interval_f1[: nan_pos[0]] = 0
+            for p in range(len(nan_pos) - 1):
+                interval_f1[nan_pos[p] : nan_pos[p + 1]] = p + 1
+            interval_f1[nan_pos[-1] :] = len(nan_pos)
+            temp_data = np.column_stack((temp_data, interval_f1))
+
+            # Puts the frequency of measurements into temp_data
+            interval_f2[: nan_pos[0]] = -1
+            for q in range(len(nan_pos) - 1):
+                length = nan_pos[q + 1] - nan_pos[q]
+                for l in range(length):
+                    interval_f2[nan_pos[q] + l] = l
+
+            length = len(patient_data) - nan_pos[-1]
+            for l in range(length):
+                interval_f2[nan_pos[-1] + l] = l
+            temp_data = np.column_stack((temp_data, interval_f2))
+
+        # Differential features
+        # These capture the change in values that have been recorded (quite simply as well but it should be just fine)
+        diff_f = data.copy()
+        diff_f = diff_f.astype(float)
+        if len(nan_pos) <= 1:
+            diff_f[:] = np.nan
+            temp_data = np.column_stack((temp_data, diff_f))
+        else:
+            diff_f[: nan_pos[1]] = np.nan
+            for p in range(1, len(nan_pos) - 1):
+                diff_f[nan_pos[p] : nan_pos[p + 1]] = (
+                    data[nan_pos[p]] - data[nan_pos[p - 1]]
+                )
+            diff_f[nan_pos[-1] :] = data[nan_pos[-1]] - data[nan_pos[-2]]
+            temp_data = np.column_stack((temp_data, diff_f))
+
+    return temp_data
+
+
+def feature_slide_window(patient_data, columns):
+
+    window_size = 6
+    features = {}
+
+    for column in columns:
+        series = patient_data[column]
+
+        features[f"{column}_max"] = series.rolling(
+            window=window_size, min_periods=1
+        ).max()
+        features[f"{column}_min"] = series.rolling(
+            window=window_size, min_periods=1
+        ).min()
+        features[f"{column}_mean"] = series.rolling(
+            window=window_size, min_periods=1
+        ).mean()
+        features[f"{column}_median"] = series.rolling(
+            window=window_size, min_periods=1
+        ).median()
+        features[f"{column}_std"] = series.rolling(
+            window=window_size, min_periods=1
+        ).std()
+
+        # For calculating std dev of differences, use diff() then apply rolling std
+        diff_std = series.diff().rolling(window=window_size, min_periods=1).std()
+        features[f"{column}_diff_std"] = diff_std
+
+    # Convert the dictionary of features into a DataFrame
+    features_df = pd.DataFrame(features)
+
+    return features_df
+
+
+def features_score(patient_data):
+    """
+    Gives score assocciated with the patient data according to the scoring systems of NEWS, SOFA and qSOFA
+    """
+
+    scores = np.zeros((len(patient_data), 8))
+
+    for ii in range(len(patient_data)):
+        HR = patient_data[ii, 0]
+        if HR == np.nan:
+            HR_score = np.nan
+        elif (HR <= 40) | (HR >= 131):
+            HR_score = 3
+        elif 111 <= HR <= 130:
+            HR_score = 2
+        elif (41 <= HR <= 50) | (91 <= HR <= 110):
+            HR_score = 1
+        else:
+            HR_score = 0
+        scores[ii, 0] = HR_score
+
+        Temp = patient_data[ii, 2]
+        if Temp == np.nan:
+            Temp_score = np.nan
+        elif Temp <= 35:
+            Temp_score = 3
+        elif Temp >= 39.1:
+            Temp_score = 2
+        elif (35.1 <= Temp <= 36.0) | (38.1 <= Temp <= 39.0):
+            Temp_score = 1
+        else:
+            Temp_score = 0
+        scores[ii, 1] = Temp_score
+
+        Resp = patient_data[ii, 6]
+        if Resp == np.nan:
+            Resp_score = np.nan
+        elif (Resp < 8) | (Resp > 25):
+            Resp_score = 3
+        elif 21 <= Resp <= 24:
+            Resp_score = 2
+        elif 9 <= Resp <= 11:
+            Resp_score = 1
+        else:
+            Resp_score = 0
+        scores[ii, 2] = Resp_score
+
+        Creatinine = patient_data[ii, 19]
+        if Creatinine == np.nan:
+            Creatinine_score = np.nan
+        elif Creatinine < 1.2:
+            Creatinine_score = 0
+        elif Creatinine < 2:
+            Creatinine_score = 1
+        elif Creatinine < 3.5:
+            Creatinine_score = 2
+        else:
+            Creatinine_score = 3
+        scores[ii, 3] = Creatinine_score
+
+        MAP = patient_data[ii, 4]
+        if MAP == np.nan:
+            MAP_score = np.nan
+        elif MAP >= 70:
+            MAP_score = 0
+        else:
+            MAP_score = 1
+        scores[ii, 4] = MAP_score
+
+        SBP = patient_data[ii, 3]
+        Resp = patient_data[ii, 6]
+        if SBP + Resp == np.nan:
+            qsofa = np.nan
+        elif (SBP <= 100) & (Resp >= 22):
+            qsofa = 1
+        else:
+            qsofa = 0
+        scores[ii, 5] = qsofa
+
+        Platelets = patient_data[ii, 30]
+        if Platelets == np.nan:
+            Platelets_score = np.nan
+        elif Platelets <= 50:
+            Platelets_score = 3
+        elif Platelets <= 100:
+            Platelets_score = 2
+        elif Platelets <= 150:
+            Platelets_score = 1
+        else:
+            Platelets_score = 0
+        scores[ii, 6] = Platelets_score
+
+        Bilirubin = patient_data[ii, 25]
+        if Bilirubin == np.nan:
+            Bilirubin_score = np.nan
+        elif Bilirubin < 1.2:
+            Bilirubin_score = 0
+        elif Bilirubin < 2:
+            Bilirubin_score = 1
+        elif Bilirubin < 6:
+            Bilirubin_score = 2
+        else:
+            Bilirubin_score = 3
+        scores[ii, 7] = Bilirubin_score
+
+    return scores
+
+
+def extract_features(patient_data, columns_to_drop=[]):
+    # Get the column with Sepsis Label as it is not the same for each row (check documentation)
+    labels = np.array(patient_data["SepsisLabel"])
+    patient_data = patient_data.drop(columns=columns_to_drop)
+
+    # Gets information from the missing variables
+    # This can be useful as it shows the clinical judgment, the test has not been ordered
+    #                              (probably a good decision we should take into account)
+    temp_data = feature_missing_information(patient_data, sep_col + con_col)
+    temp = pd.DataFrame(temp_data)
+    # To complete the data use forward-filling strategy
+    temp = temp.fillna(method="ffill")
+    # These are also the first set of features
+    # In this configutation 99 (66 + 33 or 3 per column) features to be precise
+    # They are also time indifferent
+    features_A = np.array(temp)
+    # The team did not use DBP, not sure why, might investigate this
+    # columns = ['HR', 'O2Sat', 'SBP', 'MAP', 'Resp', 'DBP']
+
+    # six-hour slide window statistics of selected columns
+    columns = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
+    features_B = feature_slide_window(patient_data, columns)
+
+    # Score features based according to NEWS, SOFA and qSOFA
+    features_C = features_score(features_A)
+
+    features = np.column_stack([features_A, features_B, features_C])
+
+    return features, labels
+
+
+# Data Pre-processing
+def preprecess_data(dataset, patient_id_map=None):
+    frames_features = []
+    frames_labels = []
+
+    for patient_id in set(dataset.index.get_level_values(0)):
+        if patient_id_map is not None:
+            print(
+                f"Processing data for patient ID: {patient_id}, File: {patient_id_map[patient_id]}",
+                end="\r",
+            )
+
+        patient_data = dataset.loc[patient_id]
+
+        features, labels = extract_features(patient_data)
+        features = pd.DataFrame(features)
+        labels = pd.DataFrame(labels)
+
+        frames_features.append(features)
+        frames_labels.append(labels)
+
+    data_features = np.array(pd.concat(frames_features))
+    data_labels = (np.array(pd.concat(frames_labels)))[:, 0]
+
+    # Randomly shuffle the data
+    index = [i for i in range(len(data_labels))]
+    np.random.shuffle(index)
+    data_features = data_features[index]
+    data_labels = data_labels[index]
+
+    return data_features, data_labels
+
+
+def preprecess_data2(dataset, patient_id_map=None):
+    frames_features = []
+    frames_labels = []
+
+    for patient_id in set(dataset.index.get_level_values(0)):
+        if patient_id_map is not None:
+            print(
+                f"Processing data for patient ID: {patient_id}, File: {patient_id_map[patient_id]}",
+                end="\r",
+            )
+
+        patient_data = dataset.loc[patient_id]
+
+        features, labels = extract_features(patient_data)
+        features = pd.DataFrame(features, index=[patient_id] * len(features))
+        labels = pd.DataFrame(labels, index=[patient_id] * len(labels))
+
+        frames_features.append(features)
+        frames_labels.append(labels)
+
+    data_features = pd.concat(frames_features)
+    data_labels = pd.concat(frames_labels)
+
+    return data_features, data_labels.squeeze()
 
 
 def news_hr_score(heart_rate: float) -> int:
@@ -188,14 +516,6 @@ def news_hr_score(heart_rate: float) -> int:
         return 3
 
 
-def add_news_hr_score(df: pd.DataFrame, hr_col: str = "HR") -> pd.DataFrame:
-    """
-    Add 'news_hr_score' column based on heart rate.
-    """
-    df["news_hr_score"] = df[hr_col].apply(news_hr_score)
-    return df
-
-
 def news_resp_score(resp_rate: float) -> int:
     """
     NEWS sub-score for respiratory rate.
@@ -213,14 +533,6 @@ def news_resp_score(resp_rate: float) -> int:
         return 2
     else:  # ≥25
         return 3
-
-
-def add_news_resp_score(df: pd.DataFrame, resp_col: str = "Resp") -> pd.DataFrame:
-    """
-    Add 'news_resp_score' column based on respiratory rate.
-    """
-    df["news_resp_score"] = df[resp_col].apply(news_resp_score)
-    return df
 
 
 def news_temp_score(temp: float) -> int:
@@ -242,96 +554,18 @@ def news_temp_score(temp: float) -> int:
         return 2
 
 
-def add_news_temp_score(df: pd.DataFrame, temp_col: str = "Temp") -> pd.DataFrame:
-    """
-    Add 'news_temp_score' column based on temperature.
-    """
-    df["news_temp_score"] = df[temp_col].apply(news_temp_score)
-    return df
-
-
-def news_sbp_score(sbp: float) -> int:
-    """
-    NEWS sub-score for systolic blood pressure (mmHg).
-    """
-    if pd.isna(sbp):
-        # Missing SBP: assume normal
-        return 0
-    if sbp <= 90:
-        return 3
-    elif 91 <= sbp <= 100:
-        return 2
-    elif 101 <= sbp <= 110:
-        return 1
-    elif 111 <= sbp <= 219:
-        return 0
-    else:  # ≥220
-        return 3
-
-
-def add_news_sbp_score(df: pd.DataFrame, sbp_col: str = "SBP") -> pd.DataFrame:
-    """
-    Add 'news_sbp_score' column based on systolic blood pressure.
-    """
-    df["news_sbp_score"] = df[sbp_col].apply(news_sbp_score)
-    return df
-
-
-def news_o2sat_score(o2sat: float) -> int:
-    """
-    NEWS sub-score for oxygen saturation (%).
-    """
-    if pd.isna(o2sat):
-        # Missing O2 saturation: assume normal
-        return 0
-    if o2sat <= 91:
-        return 3
-    elif 92 <= o2sat <= 93:
-        return 2
-    elif 94 <= o2sat <= 95:
-        return 1
-    else:  # ≥96
-        return 0
-
-
-def add_news_o2sat_score(df: pd.DataFrame, o2sat_col: str = "O2Sat") -> pd.DataFrame:
-    """
-    Add 'news_o2sat_score' column based on oxygen saturation.
-    """
-    df["news_o2sat_score"] = df[o2sat_col].apply(news_o2sat_score)
-    return df
-
-
-def news_supplemental_o2_score(fio2: float) -> int:
-    """
-    NEWS sub-score for supplemental oxygen. FiO2 > 0.21 indicates supplemental O₂.
-    """
-    if pd.isna(fio2):
-        # Missing FiO2: assume no supplemental oxygen
-        return 0
-    return 2 if fio2 > 0.21 else 0
-
-
-def add_news_supplemental_o2_score(
-    df: pd.DataFrame, fio2_col: str = "FiO2"
-) -> pd.DataFrame:
-    """
-    Add 'news_supplemental_o2_score' column based on FiO2.
-    """
-    df["news_supplemental_o2_score"] = df[fio2_col].apply(news_supplemental_o2_score)
-    return df
-
-
 def add_news_scores(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add all NEWS sub-score columns and 'news_score' total to df.
     """
-    df = add_news_hr_score(df)
-    df = add_news_resp_score(df)
-    df = add_news_temp_score(df)
-    df = add_news_sbp_score(df)
-    df = add_news_o2sat_score(df)
-    df = add_news_supplemental_o2_score(df)
+    # Compute and attach individual NEWS subscores directly
+    df["news_hr_score"] = df["HR"].apply(news_hr_score)
+    df["news_resp_score"] = df["Resp"].apply(news_resp_score)
+    df["news_temp_score"] = df["Temp"].apply(news_temp_score)
+    df["news_sbp_score"] = df["SBP"].apply(news_sbp_score)
+    df["news_o2sat_score"] = df["O2Sat"].apply(news_o2sat_score)
+    df["news_supplemental_o2_score"] = df["FiO2"].apply(news_supplemental_o2_score)
+    # Sum into total NEWS score
     df["news_score"] = df[
         [
             "news_hr_score",
