@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from medical_scoring import add_medical_scores
 from sklearn.preprocessing import LabelEncoder
 
 # continues features
@@ -134,8 +135,9 @@ def preprocess_data(raw_file, imputed_file, output_file):
     df_features = imputed_df.copy()
 
     # 1: AIDEN
-    # particular scores columns
-    df_features = calculate_scores(df_features)
+    # Add medical scoring features including: SOFA, NEWS, qSOFA and component scores
+    df_features = add_medical_scores(df_features)
+
     # 3: ZHOU
     # six-hour slide window statistics of selected columns
     columns = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
