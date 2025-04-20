@@ -56,9 +56,15 @@ def aggregate_global_score_features(df, suffix="global"):
     calculate statistical features (mean, max, last value) from clinical scores over time windows.
     This helps capture disease progression patterns and temporal trends,
     which are crucial for predicting sepsis development.
+
+    Example output for one patient:
+    'SOFA_mean_global': 3.5,    # Average SOFA during stay
+    'SOFA_median_global': 3.0,   # Median SOFA
+    'SOFA_max_global': 6.0,      # Highest SOFA
+    'SOFA_last_global': 4.0      # Final SOFA
     """
     scores = {}
-    for score_name in ["SOFA", "NEWS", "qSOFA"]:
+    for score_name in ["SOFA_score", "NEWS_score", "qSOFA_score"]:
         series = df[score_name].dropna()
         scores[f"{score_name}_mean_{suffix}"] = series.mean()
         scores[f"{score_name}_median_{suffix}"] = series.median()
@@ -84,10 +90,6 @@ def aggregate_window_features(df, cols, suffix):
         stats[f"{col}_min_{suffix}"] = series.min()
         stats[f"{col}_max_{suffix}"] = series.max()
         stats[f"{col}_last_{suffix}"] = series.iloc[-1] if not series.empty else np.nan
-
-        is_missing = df[col].isna()
-        stats[f"{col}_missing_count_{suffix}"] = is_missing.sum()
-        stats[f"{col}_missing_rate_{suffix}"] = is_missing.mean()
     return stats
 
 
@@ -100,6 +102,7 @@ def generate_window_features(df, cols):
 
     example new columns for each patient:
       HR_mean_6h
+      HR_median_6h
       HR_std_6h
       HR_min_6h
       HR_max_6h
@@ -120,6 +123,10 @@ def generate_window_features(df, cols):
     all_rows = []
 
     for pid, group in df.groupby("patient_id"):
+        scores = aggregate_global_score_features(group, suffix="global")
+        for k, v in scores.items():
+            group[k] = v
+
         group = group.sort_values("ICULOS").copy()
         for i in range(len(group)):
             if i >= 6:
@@ -136,8 +143,6 @@ def generate_window_features(df, cols):
                         "min",
                         "max",
                         "last",
-                        "missing_count",
-                        "missing_rate",
                     ]
                 }
             for k, v in stats.items():
@@ -174,6 +179,9 @@ def generate_missingness_features(raw_df, imputed_df, df_with_features):
     """
     This function generates missingness features for each patient.
     """
+    raw_df = raw_df.copy()
+    imputed_df = imputed_df.copy()
+    df_with_features = df_with_features.copy()
     selected_cols = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
     missing_rows = []
 
