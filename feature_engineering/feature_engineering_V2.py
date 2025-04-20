@@ -2,8 +2,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import torch
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
 
 
 def find_project_root(marker=".gitignore"):
@@ -16,7 +14,8 @@ def find_project_root(marker=".gitignore"):
         if (parent / marker).exists():
             return parent.resolve()
     raise FileNotFoundError(
-        f"Project root marker '{marker}' not found starting from {current}")
+        f"Project root marker '{marker}' not found starting from {current}"
+    )
 
 
 def score_by_value(value, thresholds):
