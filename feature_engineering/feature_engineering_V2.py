@@ -99,7 +99,7 @@ def aggregate_window_features(df, cols, suffix):
     return stats
 
 
-def generate_window_features(df, cols):
+def generate_window_features_old(df, cols):
     """
     This function generates statistical features (mean, max, last value) from vital signs over 6-hour windows.
     It helps capture short-term physiological changes and data quality issues that might indicate sepsis onset.
@@ -158,13 +158,19 @@ def generate_window_features(df, cols):
     return pd.concat(all_rows).reset_index(drop=True)
 
 
-def generate_window_features_martin(df, cols):
+def generate_window_features(df, cols):
     df = df.copy()
     df = df.sort_values(["patient_id", "ICULOS"])  # Ensure time-based sorting
 
-    for patient_id in df["patient_id"].unique():
-        patient_mask = df["patient_id"] == patient_id
+    # count the number of patients
+    num_patients = len(df["patient_id"].unique())
+    print(f"Number of patients: {num_patients}")
 
+    i = 0
+    for patient_id in df["patient_id"].unique():
+        i += 1
+        patient_mask = df["patient_id"] == patient_id
+        print(f"Processing patient {i} of {num_patients}")
         for column in cols:
             series = df.loc[patient_mask, column]
             df.loc[patient_mask, f"{column}_max_6h"] = series.rolling(
@@ -250,15 +256,17 @@ def preprocess_data(raw_file, imputed_file, output_file):
     df_features = calculate_scores(df_features)
     print("CALCULATE SCORES DONE")
 
+    df_features = generate_missingness_features(raw_df, imputed_df, df_features)
+    print("GENERATE MISSINGNESS FEATURES DONE")
+
     # 3: ZHOU
     # six-hour slide window statistics of selected columns
     columns = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
-    df_features = generate_window_features_martin(df_features, columns)
+    df_features = generate_window_features(df_features, columns)
     print("GENERATE WINDOW FEATURES DONE")
     # 4: ZHOU
     # missingness features
-    df_features = generate_missingness_features(raw_df, imputed_df, df_features)
-    print("GENERATE MISSINGNESS FEATURES DONE")
+
     # 5: DON'T CARE
     # drop useless columns
     df_features = df_features.drop(columns=["Unit1", "Unit2", "cluster_id", "dataset"])
