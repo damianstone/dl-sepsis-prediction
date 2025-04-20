@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from medical_scoring import add_medical_scores
+from medical_scoring import add_news_scores, add_qsofa_score, add_sofa_scores
 from sklearn.preprocessing import LabelEncoder
 
 # continues features
@@ -44,6 +44,11 @@ def calculate_scores(df):
     time series data.
     """
     df = df.copy()
+    # go to each of these functions to know how they work
+    df = add_sofa_scores(df)
+    df = add_news_scores(df)
+    df = add_qsofa_score(df)
+    return df
 
 
 def aggregate_global_score_features(df, suffix="global"):
@@ -118,7 +123,7 @@ def generate_window_features(df, cols):
         group = group.sort_values("ICULOS").copy()
         for i in range(len(group)):
             if i >= 6:
-                window = group.iloc[i - 6: i]
+                window = group.iloc[i - 6 : i]
                 stats = aggregate_window_features(window, cols, suffix="6h")
             else:
                 stats = {
@@ -194,7 +199,7 @@ def preprocess_data(raw_file, imputed_file, output_file):
 
     # 1: AIDEN
     # Add medical scoring features including: SOFA, NEWS, qSOFA and component scores
-    df_features = add_medical_scores(df_features)
+    df_features = calculate_scores(df_features)
 
     # 3: ZHOU
     # six-hour slide window statistics of selected columns
