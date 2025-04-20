@@ -2,9 +2,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from medical_scoring import add_medical_scores
+from sklearn.preprocessing import LabelEncoder
 
 # continues features
-con_col = ['HR', 'O2Sat', 'Temp', 'SBP', 'MAP', 'DBP', 'Resp', 'EtCO2']
+con_col = ["HR", "O2Sat", "Temp", "SBP", "MAP", "DBP", "Resp", "EtCO2"]
 
 
 def find_project_root(marker=".gitignore"):
@@ -21,97 +23,10 @@ def find_project_root(marker=".gitignore"):
     )
 
 
-def score_by_value(value, thresholds):
-    for threshold, score in thresholds:
-        if value >= threshold:
-            return score
-    return 0
-
-
-def calculate_sofa(row):
-    sofa = 0
-    if row.get("MAP", 100) < 70:
-        sofa += 1
-    sofa += score_by_value(
-        row.get("Creatinine", 0), [(5, 4), (3.5, 3), (2, 2), (1.2, 1)]
-    )
-    # TODO: this calculation WRONG, when its above 150 should return 0, double check for other calculations
-    sofa += score_by_value(
-        row.get("Platelets", float("inf")), [(20, 4), (50, 3), (100, 2), (150, 1)]
-    )
-    sofa += score_by_value(
-        row.get("Bilirubin_total", 0), [(12, 4), (6, 3), (2, 2), (1.2, 1)]
-    )
-    if row.get("FiO2", 0) > 0 and pd.notna(row.get("SaO2", None)):
-        pao2_fio2 = row["SaO2"] / row["FiO2"]
-        sofa += score_by_value(pao2_fio2, [(100, 4), (200, 3), (300, 2), (400, 1)])
-    return sofa
-
-
-def calculate_news(row):
-    news = 0
-    news += score_by_value(
-        row.get("HR", 0), [(131, 3), (130, 2), (110, 1), (90, 0), (50, 1), (40, 3)]
-    )
-    news += score_by_value(
-        row.get("Resp", 0), [(24, 3), (21, 2), (11, 0), (9, 1), (8, 3)]
-    )
-    news += score_by_value(row.get("Temp", 0), [(39.1, 2), (38, 1), (36, 1), (35, 3)])
-    sbp = row.get("SBP", row.get("MAP", 100))
-    news += score_by_value(sbp, [(90, 3), (100, 2), (110, 1)])
-    news += score_by_value(row.get("O2Sat", 0), [(85, 3), (91, 2), (93, 1)])
-    if row.get("FiO2", 0) > 0.21:
-        news += 2
-    return news
-
-
-def calculate_qsofa(row):
-    qsofa = 0
-    if row.get("SBP", 120) <= 100:
-        qsofa += 1
-    if row.get("Resp", 0) >= 22:
-        qsofa += 1
-    return qsofa
-
-
-def calculate_particupar_scores(df):
-    """
-    calculate the scores for each measurement value as save it as a new feature
-    for example:
-      HR_SOFA
-      HR_NEWS
-      HR_qSOFA
-      O2Sat_SOFA
-      O2Sat_NEWS
-      O2Sat_qSOFA
-
-    Breaking down scores by individual measurements (HR_SOFA, HR_NEWS) helps the model understand 
-    how each vital sign contributes to overall risk, enabling better pattern recognition across 
-    time series data.
-    """
-    df = df.copy()
-    pass
-
-
-def calculate_general_scores(df):
-    """
-    Calculate general scores (SOFA, NEWS, qSOFA) for each patient.
-    example new column for each patient:
-      SOFA
-      NEWS
-      qSOFA
-    """
-    df = df.copy()
-    df['SOFA'] = df.apply(calculate_sofa, axis=1)
-    df['NEWS'] = df.apply(calculate_news, axis=1)
-    df['qSOFA'] = df.apply(calculate_qsofa, axis=1)
-    return df
-
-
 def aggregate_window_features(df, cols, suffix):
     """
-    This function analyzes vital signs over 6-hour windows, calculating statistics 
-    (mean, min, max, std) and missing data patterns. It helps detect short-term physiological 
+    This function analyzes vital signs over 6-hour windows, calculating statistics
+    (mean, min, max, std) and missing data patterns. It helps detect short-term physiological
     changes and data quality issues that might indicate sepsis onset.
     """
     stats = {}
@@ -133,8 +48,8 @@ def aggregate_window_features(df, cols, suffix):
 
 def aggregate_scores(df, suffix="global"):
     """
-    calculate statistical features (mean, max, last value) from clinical scores over time windows. 
-    This helps capture disease progression patterns and temporal trends, 
+    calculate statistical features (mean, max, last value) from clinical scores over time windows.
+    This helps capture disease progression patterns and temporal trends,
     which are crucial for predicting sepsis development.
     """
     # NOTE: sofa, qsofa and news will be already at this point
@@ -162,7 +77,7 @@ def aggregate_scores(df, suffix="global"):
 
 def generate_window_features(df, cols):
     """
-    This function generates statistical features (mean, max, last value) from vital signs over 6-hour windows. 
+    This function generates statistical features (mean, max, last value) from vital signs over 6-hour windows.
     It helps capture short-term physiological changes and data quality issues that might indicate sepsis onset.
 
     This will be applied for each patient for the following columns: ['HR', 'O2Sat', 'SBP', 'MAP', 'Resp']
@@ -177,16 +92,13 @@ def generate_window_features(df, cols):
       HR_missing_rate_6h
     """
     df = df.copy()
-    window_features = {}
-    pass
 
 
 def generate_missingness_features(raw_df, imputed_df, df_with_features):
     """
     This function generates missingness features for each patient.
     """
-    df = df.copy()
-    pass
+    df.copy()
 
 
 def print_new_columns(df_features, imputed_df):
@@ -200,16 +112,12 @@ def preprocess_data(raw_file, imputed_file, output_file):
     df_features = imputed_df.copy()
 
     # 1: AIDEN
-    # particular scores columns
-    df_features = calculate_particupar_scores(df_features)
-
-    # 2: DAMIAN
-    # get general sofa, qsofa and news scrores
-    df_features = calculate_general_scores(df_features)
+    # Add medical scoring features including: SOFA, NEWS, qSOFA and component scores
+    df_features = add_medical_scores(df_features)
 
     # 3: ZHOU
     # six-hour slide window statistics of selected columns
-    columns = ['HR', 'O2Sat', 'SBP', 'MAP', 'Resp']
+    columns = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
     df_features = generate_window_features(df_features, columns)
 
     # 4: ZHOU
@@ -222,8 +130,9 @@ def preprocess_data(raw_file, imputed_file, output_file):
 
     # 6: DON'T CARE
     # handle gender as a categorical variable
-    df_features['Gender'] = LabelEncoder().fit_transform(
-        df_features['Gender'].astype(str))
+    df_features["Gender"] = LabelEncoder().fit_transform(
+        df_features["Gender"].astype(str)
+    )
 
     # 7: DON'T CARE
     # scale the features - min max scaler ? discuss this later
