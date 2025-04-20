@@ -53,7 +53,7 @@ def calculate_scores(df):
 
 def aggregate_global_score_features(df, suffix="global"):
     """
-    calculate statistical features (mean, max, last value) from clinical scores over time windows.
+    calculate statistical features (mean, max, last value) from clinical scores in each time step
     This helps capture disease progression patterns and temporal trends,
     which are crucial for predicting sepsis development.
 
@@ -77,9 +77,14 @@ def aggregate_global_score_features(df, suffix="global"):
 
 def aggregate_window_features(df, cols, suffix):
     """
+    THIS MOSTLY FOR THE XGBOOST
     This function analyzes vital signs over 6-hour windows, calculating statistics
     (mean, min, max, std) and missing data patterns. It helps detect short-term physiological
     changes and data quality issues that might indicate sepsis onset.
+
+    For transformers, global scores are less crucial since transformers can learn
+    temporal patterns directly from sequential data. However, they can still be useful as
+    auxiliary features to provide high-level summaries of patient state. Consider them optional.
     """
     stats = {}
     for col in cols:
@@ -177,7 +182,10 @@ def compute_missingness_summary(df, cols):
 
 def generate_missingness_features(raw_df, imputed_df, df_with_features):
     """
-    This function generates missingness features for each patient.
+    The frequency of missing values reflects how often a measurement is taken.
+    If a patient is generally stable, clinicians may shift their attention to other, more critical issues
+    such as rapidly deteriorating patients or specific key indicators. Therefore, a low rate of missingness
+    (i.e., frequent measurement) suggests that the patient or that specific variable is receiving more clinical attention.
     """
     raw_df = raw_df.copy()
     imputed_df = imputed_df.copy()
@@ -208,25 +216,27 @@ def preprocess_data(raw_file, imputed_file, output_file):
     # 1: AIDEN
     # Add medical scoring features including: SOFA, NEWS, qSOFA and component scores
     df_features = calculate_scores(df_features)
+    print("CALCULATE SCORES DONE")
 
     # 3: ZHOU
     # six-hour slide window statistics of selected columns
     columns = ["HR", "O2Sat", "SBP", "MAP", "Resp"]
     df_features = generate_window_features(df_features, columns)
-
+    print("GENERATE WINDOW FEATURES DONE")
     # 4: ZHOU
     # missingness features
     df_features = generate_missingness_features(raw_df, imputed_df, df_features)
-
+    print("GENERATE MISSINGNESS FEATURES DONE")
     # 5: DON'T CARE
     # drop useless columns
     df_features = df_features.drop(columns=["Unit1", "Unit2", "cluster_id", "dataset"])
-
+    print("DROP USELESS COLUMNS DONE")
     # 6: DON'T CARE
     # handle gender as a categorical variable
     df_features["Gender"] = LabelEncoder().fit_transform(
         df_features["Gender"].astype(str)
     )
+    print("HANDLE GENDER DONE")
 
     # 7: DON'T CARE
     # scale the features - min max scaler ? discuss this later
@@ -254,6 +264,6 @@ def preprocess_data(raw_file, imputed_file, output_file):
 if __name__ == "__main__":
     root = find_project_root()
     RAW_DATASET = f"{root}/dataset/raw_combined_data.parquet"
-    INPUT_DATASET = f"{root}/dataset/Fully_imputed_dataset.parquet"
+    IMPUTED_DATASET = f"{root}/dataset/Fully_imputed_dataset.parquet"
     OUTPUT_DATASET = f"{root}/dataset/V2_preprocessed.parquet"
-    preprocess_data(OUTPUT_DATASET)
+    preprocess_data(RAW_DATASET, IMPUTED_DATASET, OUTPUT_DATASET)
