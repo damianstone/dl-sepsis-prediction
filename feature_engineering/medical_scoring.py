@@ -16,6 +16,11 @@ Required columns in input DataFrame:
     - SOFA: Creatinine, Platelets, Bilirubin_total, SaO2, FiO2
     - NEWS: HR, Resp, Temp, SBP, O2Sat, FiO2
     - qSOFA: Resp, SBP
+
+New columns added to input DataFrame:
+    - SOFA_Creatinine, SOFA_Platelets, SOFA_Bilirubin_total, SOFA_SaO2_FiO2, SOFA_score
+    - NEWS_HR_score, NEWS_Resp_score, NEWS_Temp_score, NEWS_SBP_score, NEWS_O2Sat_score, NEWS_FiO2_score, NEWS_score
+    - qSOFA_Resp_score, qSOFA_SBP_score, qSOFA_score
 """
 
 from pathlib import Path
@@ -130,14 +135,14 @@ def add_sofa_scores(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add SOFA sub-score columns and total SOFA score to the DataFrame.
     """
-    df["renal_score"] = df["Creatinine"].round(1).apply(sofa_renal_score)
-    df["coagulation_score"] = df["Platelets"].apply(sofa_coagulation_score)
-    df["liver_score"] = df["Bilirubin_total"].round(1).apply(sofa_liver_score)
-    df["respiratory_score"] = df.apply(
+    df["SOFA_Creatinine"] = df["Creatinine"].round(1).apply(sofa_renal_score)
+    df["SOFA_Platelets"] = df["Platelets"].apply(sofa_coagulation_score)
+    df["SOFA_Bilirubin_total"] = df["Bilirubin_total"].round(1).apply(sofa_liver_score)
+    df["SOFA_SaO2_FiO2"] = df.apply(
         lambda row: sofa_respiratory_score(row["SaO2"], row["FiO2"]), axis=1
     )
-    df["sofa_score"] = df[
-        ["renal_score", "coagulation_score", "liver_score", "respiratory_score"]
+    df["SOFA_score"] = df[
+        ["SOFA_Creatinine", "SOFA_Platelets", "SOFA_Bilirubin_total", "SOFA_SaO2_FiO2"]
     ].sum(axis=1)
     return df
 
@@ -334,11 +339,9 @@ def add_qsofa_score(
     """
     Add qSOFA sub-score columns and total qSOFA score to the DataFrame.
     """
-    df["qsofa_resp_score"] = df[resp_col].apply(qsofa_resp_score)
-    df["qsofa_sbp_score"] = df[sbp_col].apply(qsofa_sbp_score)
-
-    df["qsofa_gcs_score"] = 0
-    df["qsofa_score"] = df[["qsofa_resp_score", "qsofa_sbp_score"]].sum(axis=1)
+    df["qSOFA_Resp_score"] = df[resp_col].apply(qsofa_resp_score)
+    df["qSOFA_SBP_score"] = df[sbp_col].apply(qsofa_sbp_score)
+    df["qSOFA_score"] = df[["qSOFA_Resp_score", "qSOFA_SBP_score"]].sum(axis=1)
 
     return df
 
@@ -379,11 +382,11 @@ def test_functions():
     df = add_news_scores(df)
     df = add_qsofa_score(df)
     # test if the columns are added correctly
-    assert "renal_score" in df.columns
-    assert "coagulation_score" in df.columns
-    assert "liver_score" in df.columns
-    assert "respiratory_score" in df.columns
-    assert "sofa_score" in df.columns
+    assert "SOFA_Creatinine" in df.columns
+    assert "SOFA_Platelets" in df.columns
+    assert "SOFA_Bilirubin_total" in df.columns
+    assert "SOFA_SaO2_FiO2" in df.columns
+    assert "SOFA_score" in df.columns
     assert "NEWS_HR_score" in df.columns
     assert "NEWS_Resp_score" in df.columns
     assert "NEWS_Temp_score" in df.columns
@@ -391,10 +394,9 @@ def test_functions():
     assert "NEWS_O2Sat_score" in df.columns
     assert "NEWS_FiO2_score" in df.columns
     assert "NEWS_score" in df.columns
-    assert "qsofa_resp_score" in df.columns
-    assert "qsofa_sbp_score" in df.columns
-    assert "qsofa_gcs_score" in df.columns
-    assert "qsofa_score" in df.columns
+    assert "qSOFA_Resp_score" in df.columns
+    assert "qSOFA_SBP_score" in df.columns
+    assert "qSOFA_score" in df.columns
     return df
 
 
