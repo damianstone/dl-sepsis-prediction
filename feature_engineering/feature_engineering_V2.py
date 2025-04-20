@@ -101,21 +101,6 @@ def aggregate_window_features(df, cols, suffix):
 
 def generate_window_features_old(df, cols):
     """
-    This function generates statistical features (mean, max, last value) from vital signs over 6-hour windows.
-    It helps capture short-term physiological changes and data quality issues that might indicate sepsis onset.
-
-    This will be applied for each patient for the following columns: ['HR', 'O2Sat', 'SBP', 'MAP', 'Resp']
-
-    example new columns for each patient:
-      HR_mean_6h
-      HR_median_6h
-      HR_std_6h
-      HR_min_6h
-      HR_max_6h
-      HR_last_6h
-      HR_missing_count_6h
-      HR_missing_rate_6h
-
     For each patient:
 
     1. Sort rows by ICU stay time (`ICULOS`).
@@ -159,6 +144,20 @@ def generate_window_features_old(df, cols):
 
 
 def generate_window_features(df, cols):
+    """
+    This function generates statistical features (mean, max, last value) from vital signs over 6-hour windows.
+    It helps capture short-term physiological changes and data quality issues that might indicate sepsis onset.
+
+    This will be applied for each patient for the following columns: ['HR', 'O2Sat', 'SBP', 'MAP', 'Resp']
+
+    example new columns for each patient:
+      HR_mean_6h
+      HR_median_6h
+      HR_std_6h
+      HR_min_6h
+      HR_max_6h
+      HR_last_6h
+    """
     df = df.copy()
     df = df.sort_values(["patient_id", "ICULOS"])  # Ensure time-based sorting
 
@@ -286,10 +285,9 @@ def preprocess_data(raw_file, imputed_file, output_file):
     if df_features.isna().sum().sum() > 0:
         # save the dataset with nan values for debugging
         df_features.to_parquet(f"{output_file}_with_nans.parquet")
-        raise ValueError("Found NaN values in the dataset")
         # NOTE: handle nan values doing forward fill and then back fill
-        # df_features = df_features.fillna(method="ffill")
-        # df_features = df_features.fillna(method="bfill")
+        df_features = df_features.fillna(method="ffill")
+        df_features = df_features.fillna(method="bfill")
     else:
         print("No NaN values found in the dataset")
     # print the new columns names added after feature engineering comparing with the imputed_df
