@@ -19,7 +19,7 @@ def find_project_root(marker=".gitignore"):
 
 def run_shap_on_data(parquet_file="train_balanced.parquet", output_tag="default"):
     root = find_project_root()
-    input_path = root / "dataset" / "feature_engineering" / parquet_file
+    input_path = root / "dataset" / parquet_file
     df = pd.read_parquet(input_path)
 
     if "patient_id" not in df.columns and "patient_id" in df.index.names:
@@ -27,7 +27,7 @@ def run_shap_on_data(parquet_file="train_balanced.parquet", output_tag="default"
 
     label_col = ("SepsisLabel_patient" if "SepsisLabel_patient" in df.columns else "SepsisLabel")
 
-    exclude = ["patient_id", "ICULOS", label_col]
+    exclude = ["patient_id",label_col]
     features = df.drop(columns=[col for col in exclude if col in df.columns], errors="ignore").fillna(-1)
     labels = df[label_col].astype(int)
 
@@ -59,9 +59,9 @@ def run_shap_on_data(parquet_file="train_balanced.parquet", output_tag="default"
     mean_abs_shap = np.abs(shap_matrix).mean(axis=0)
     feature_names = shap_values.feature_names
     shap_df_raw = pd.DataFrame(shap_matrix, columns=feature_names)
-    shap_df_raw["label"] = labels.values
+    shap_df_raw["predicted_label"] = y_pred_label
 
-    grouped = shap_df_raw.groupby("label").mean().T
+    grouped = shap_df_raw.groupby("predicted_label").mean().T
     grouped = grouped.rename(columns={0: "mean_shap_negative", 1: "mean_shap_positive"})
     shap_df = pd.DataFrame({"feature": feature_names, "mean_abs_shap": mean_abs_shap})
     shap_df = shap_df.set_index("feature").join(grouped).reset_index()
@@ -76,15 +76,14 @@ def run_shap_on_data(parquet_file="train_balanced.parquet", output_tag="default"
     top_positive_features = (
         shap_df.sort_values(by="mean_shap_positive", ascending=False)
         .head(20)["feature"]
-        .tolist()
-    )
+        .tolist())
+    
     top_positive_indices = [features.columns.get_loc(f) for f in top_positive_features]
     shap_values_top_pos = shap.Explanation(
         values=shap_values.values[:, top_positive_indices],
         base_values=shap_values.base_values,
         data=features.iloc[:, top_positive_indices],
-        feature_names=[features.columns[i] for i in top_positive_indices],
-    )
+        feature_names=[features.columns[i] for i in top_positive_indices],)
 
     positive_plot_path = output_dir / f"top20_positive_shap.png"
     plt.figure(figsize=(12, 10))

@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -124,7 +125,6 @@ def generate_multiwindow_features(df, feature_cols, window_size=6):
         max_time = group["ICULOS"].max()
 
         row.update(aggregate_window_features(group, feature_cols, suffix="global"))
-        row.update(compute_missingness_summary(group, feature_cols))
         row.update(aggregate_scores(group, suffix="global"))
 
         window_idx = 1
@@ -151,99 +151,44 @@ def generate_multiwindow_features(df, feature_cols, window_size=6):
 
     return pd.DataFrame(patient_rows)
 
-def run_multiwindow_feature_engineering(compress=False):
+def run_multiwindow_feature_engineering():
     input_path = Path("dataset/feature_engineering/balanced_dataset_filtered.parquet")
-    shap_path = Path("models/model_A/outputs/shap/shap_features_filtered.csv")
-    
-    shap_df = pd.read_csv(shap_path)
-    top_shap_features = (
-        shap_df.sort_values(by="mean_shap_positive", ascending=False)
-        .head(20)["feature"]
-        .tolist())
-    
     raw_path = Path("dataset/raw_combined_data.parquet")
-    df_raw = pd.read_parquet(raw_path)
-
-    missingness_rows = []
-    for pid, group in df_raw.groupby("patient_id"):
-        summary = compute_missingness_summary(group, top_shap_features)
-        summary["patient_id"] = pid
-        missingness_rows.append(summary)
-
-    df_missing = pd.DataFrame(missingness_rows)
-
 
     df = pd.read_parquet(input_path)
     if "ICULOS" not in df.columns and "ICULOS" in df.index.names:
         df = df.reset_index()
 
-    
+    exclude_cols = ["patient_id", "ICULOS", "SepsisLabel", "SepsisLabel_patient", "Age", "Gender"]
+    feature_cols = [col for col in df.columns if col not in exclude_cols]
+    print(f"Using {len(feature_cols)} physiological features:\n{feature_cols}")
 
-    print(f"Top 20 physiological features selected from SHAP:\n{top_shap_features}")
+    df_raw = pd.read_parquet(raw_path)
+    df_raw = df_raw.reset_index()
 
-    if compress:
-        output_path = Path("dataset/XGBoost/after_feature_engineering.parquet")
-        preview_path = Path("dataset/XGBoost/patient_preview.csv")
-        df_feat = generate_multiwindow_features(df, top_shap_features, window_size=6)
-        df_feat = pd.merge(df_feat, df_missing, on="patient_id", how="left")
-        df_feat.to_parquet(output_path, index=False)
-        df_feat.head(10).to_csv(preview_path, index=False)
-        print(f"\nSaved patient-level multi-window features to: {output_path}")
-        print(f"Preview saved to: {preview_path}")
 
-    else:
-        preview_path = Path("dataset/feature_engineering/patient_preview_timeseries.csv")
-        output_path = Path("dataset/feature_engineering/after_feature_engineering_timeseries.parquet")
+    missingness_rows = []
+    for pid, group in df_raw.groupby("patient_id"):
+        summary = compute_missingness_summary(group, feature_cols)
+        summary_row = {"patient_id": pid}
+        summary_row.update(summary)
+        missingness_rows.append(summary_row)
 
-        df = df.sort_values(["patient_id", "ICULOS"]).copy()
-        df["SOFA"] = df.apply(calculate_sofa, axis=1)
-        df["NEWS"] = df.apply(calculate_news, axis=1)
-        df["qSOFA"] = df.apply(calculate_qsofa, axis=1)
+    df_missing = pd.DataFrame(missingness_rows)
 
-        patient_scores = []
-        for pid, group in df.groupby("patient_id"):
-            group = group.sort_values("ICULOS").copy()
-            scores = aggregate_scores(group, suffix="global")
-            for k, v in scores.items():
-                group[k] = v
-            group["SepsisLabel_patient"] = group["SepsisLabel"].max()
-            patient_scores.append(group)
+    output_path = Path("dataset/XGBoost/after_feature_engineering.parquet")
+    preview_path = Path("dataset/XGBoost/patient_preview.csv")
+    df_feat = generate_multiwindow_features(df, feature_cols, window_size=6)
 
-        df = pd.concat(patient_scores)
-        df = pd.merge(df, df_missing, on="patient_id", how="left")
+    missing_cols = [col for col in df_missing.columns if "missing" in col]
+    df_missing_filtered = df_missing[["patient_id"] + missing_cols]
+    df_feat = pd.merge(df_feat, df_missing_filtered, on="patient_id", how="left")
 
-        # Sliding window feature extraction (12-hour)
-        window_size = 6,12
-        feature_dict = {}
+    df_feat.to_parquet(output_path, index=False)
+    df_feat.head(10).to_csv(preview_path, index=False)
+    print(f"\nSaved patient-level multi-window features to: {output_path}")
+    print(f"Preview saved to: {preview_path}")
 
-        for col in top_shap_features:
-            if col in df.columns:
-                ma_col = f"{col}_MA_{window_size}h"
-                max_col = f"{col}_MAX_{window_size}h"
-                last_col = f"{col}_LAST_{window_size}h"
-
-                feature_dict[ma_col] = pd.Series(0, index=df.index)
-                feature_dict[max_col] = pd.Series(0, index=df.index)
-                feature_dict[last_col] = pd.Series(0, index=df.index)
-
-                for pid, group in df.groupby("patient_id"):
-                    group = group.sort_values("ICULOS").copy()
-                    idx = group[group["ICULOS"] >= window_size].index
-
-                    ma_vals = group[col].rolling(window=window_size, min_periods=window_size).mean()
-                    max_vals = group[col].rolling(window=window_size, min_periods=window_size).max()
-                    last_vals = group[col].shift(1)
-
-                    feature_dict[ma_col].loc[idx] = ma_vals.loc[idx]
-                    feature_dict[max_col].loc[idx] = max_vals.loc[idx]
-                    feature_dict[last_col].loc[group.index] = last_vals.loc[group.index].fillna(0)
-
-        df = pd.concat([df, pd.DataFrame(feature_dict)], axis=1)
-
-        df.to_parquet(output_path, index=False)
-        df.head(40).to_csv(preview_path, index=False)
-        print(f"Saved time-series feature-enhanced data to: {output_path}")
-        print(f"Preview saved to: {preview_path}")
 
 
 

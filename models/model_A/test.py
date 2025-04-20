@@ -98,7 +98,7 @@ if __name__ == "__main__":
     features = load_top_features(n=20)
     root = find_project_root()
 
-    specified_train_name = "train_4"
+    specified_train_name = "train_5"
     train_dir = root / "models" / "model_A" / "train_outputs" / specified_train_name
     best_model_path = train_dir / "best_xgb_model.ubj"
 

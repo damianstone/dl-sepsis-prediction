@@ -92,7 +92,7 @@ def split_balanced_dataset_maintain_ratio(
     df_train = df_balanced[df_balanced["patient_id"].isin(train_ids)]
     df_test = df_balanced[df_balanced["patient_id"].isin(test_ids)]
 
-    out_dir = root / "dataset" / "feature_engineering"
+    out_dir = root / "dataset" / "XGBoost"
     df_train.to_parquet(out_dir / "train_balanced.parquet")
     df_test.to_parquet(out_dir / "test_balanced.parquet")
 

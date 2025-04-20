@@ -39,6 +39,3 @@ def get_dataset():
     combined_df = pd.concat(data_frames, ignore_index=True)
     return combined_df, patient_id_map
 
-
-if __name__ == "__main__":
-    print("Geting Data...")
