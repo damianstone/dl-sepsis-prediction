@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import torch
 import yaml
-from architectures import TransformerClassifier, TransformerTimeSeries
+from architectures_m import TransformerTimeSeries
 from custom_dataset import SepsisPatientDataset, collate_fn
 from model_utils.helper_functions import save_xperiment_csv, save_xperiment_yaml
 from model_utils.metrics import save_metrics
@@ -148,13 +148,13 @@ def get_model(model_to_use, config, in_dim, device):
             n_layers=config["model"]["num_layers"],
             dropout=config["model"]["drop_out"],
         ).to(device)
-    else:
-        model = TransformerClassifier(
-            input_dim=in_dim,
-            n_heads=config["model"]["num_heads"],
-            drop_out=config["model"]["drop_out"],
-            num_layers=config["model"]["num_layers"],
-        ).to(device)
+    # else:
+    #     model = TransformerClassifier(
+    #         input_dim=in_dim,
+    #         n_heads=config["model"]["num_heads"],
+    #         drop_out=config["model"]["drop_out"],
+    #         num_layers=config["model"]["num_layers"],
+    #     ).to(device)
     return model
 
 

@@ -148,6 +148,7 @@ def training_loop(
     # set up LR scheduler: 10% of total steps as warmup
     warmup_epochs = 10
     warmup_steps = int(warmup_epochs * len(train_loader))
+    total_steps = epochs * len(train_loader)
     scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
 
     patience = 10  # if the validation doesn't improve after K (patience) checks
@@ -160,38 +161,39 @@ def training_loop(
         model.train()
         epoch_loss = 0.0
         epoch_y_pred, epoch_y_true = [], []
-        batch_count = 0
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False)
 
         for X_batch, y_batch, attention_mask in train_loader:
-            X_batch, y_batch, attention_mask = (
-                X_batch.to(device),
-                y_batch.to(device),
-                attention_mask.to(device),
-            )
+            X_batch = X_batch.to(device)
+            y_batch = y_batch.to(device)  # (batch,)
+            attention_mask = attention_mask.to(device)  # (seq_len, batch)
 
-            # Forward pass
+            # ---- forward ----
             y_logits = model(X_batch, mask=attention_mask)
-            y_probs = torch.sigmoid(y_logits)
-            y_preds = (y_probs >= threshold).float()
+            # y_logits: (seq_len, batch)
 
-            # compute loss
-            loss = loss_fn(y_logits.squeeze(), y_batch.float())
+            # Build per‑step labels
+            y_labels = y_batch.unsqueeze(0).expand_as(y_logits)  # (seq_len, batch)
 
-            # Backpropagation
+            # Mask padding steps
+            valid_mask = attention_mask.bool()
+            logits_flat = y_logits[valid_mask]  # (#valid,)
+            labels_flat = y_labels[valid_mask].float()  # (#valid,)
+
+            # ---- loss ----
+            loss = loss_fn(logits_flat, labels_flat)
+
+            # ---- backward ----
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             scheduler.step()
 
-            batch_count += 1
-
-            # update epoch metrics and store predictions
+            # ---- track metrics ----
             epoch_loss += loss.item()
-            epoch_y_pred.append(y_preds.squeeze().cpu())
-            epoch_y_true.append(y_batch.float().cpu())
-
-            progress_bar.set_postfix({"Loss": loss.item()})
+            preds_flat = (torch.sigmoid(logits_flat) >= threshold).float()
+            epoch_y_pred.append(preds_flat.cpu())
+            epoch_y_true.append(labels_flat.cpu())
 
         epoch_loss /= len(train_loader)
         epoch_y_pred = torch.cat(epoch_y_pred).numpy()
