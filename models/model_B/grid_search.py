@@ -19,6 +19,7 @@ import sys
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from custom_dataset import SepsisPatientDataset, collate_fn
 from full_pipeline import data_plots_and_metrics, get_model, get_pos_weight
 from testing import testing_loop
@@ -57,6 +58,63 @@ RANDOM_STATE = 42
 # ============================================================================
 
 
+# Added FocalLoss Class
+class FocalLoss(nn.Module):
+    """
+    Focal Loss for Binary Classification.
+    Based on https://github.com/facebookresearch/fvcore/blob/main/fvcore/nn/focal_loss.py
+
+    Args:
+        alpha (float): Weighting factor for the rare class (e.g., positive class).
+                       Set to -1 to disable. Defaults to 0.25.
+        gamma (float): Focusing parameter. Higher values down-weight easy examples.
+                       Defaults to 2.0.
+        reduction (str): Specifies the reduction to apply to the output:
+                         'none' | 'mean' | 'sum'. 'mean': sum over batch / batch size.
+                         'sum': sum over batch. Defaults to 'mean'.
+        logits (bool): If True, input is expected to be logits (before sigmoid).
+                       If False, input is expected to be probabilities (after sigmoid).
+                       Defaults to True.
+    """
+
+    def __init__(self, alpha=0.25, gamma=2.0, reduction="mean", logits=True):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.logits = logits
+
+    def forward(self, inputs, targets):
+        targets = targets.float()  # Ensure targets are float
+        if self.logits:
+            bce_loss = F.binary_cross_entropy_with_logits(
+                inputs, targets, reduction="none"
+            )
+            p = torch.sigmoid(inputs)
+        else:
+            bce_loss = F.binary_cross_entropy(inputs, targets, reduction="none")
+            p = inputs
+
+        # Calculate p_t
+        p_t = p * targets + (1 - p) * (1 - targets)
+
+        # Calculate focal loss factor
+        loss = bce_loss * ((1 - p_t) ** self.gamma)
+
+        # Apply alpha weighting
+        if self.alpha >= 0:
+            alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+            loss = alpha_t * loss
+
+        # Apply reduction
+        if self.reduction == "mean":
+            loss = loss.mean()
+        elif self.reduction == "sum":
+            loss = loss.sum()
+
+        return loss
+
+
 def set_seeds(seed: int = RANDOM_STATE):
     random.seed(seed)
     np.random.seed(seed)
@@ -80,8 +138,11 @@ def setup_base_config():
         },
         "training": {
             "batch_size": 256,
-            "use_post_weight": True,
-            "max_post_weight": 5,
+            "loss_type": "focal",  # Can be 'bce' or 'focal'
+            "use_post_weight": True,  # Only used if loss_type is 'bce'
+            "max_post_weight": 5,  # Only used if loss_type is 'bce'
+            "focal_alpha": 0.25,  # Only used if loss_type is 'focal'
+            "focal_gamma": 2.0,  # Only used if loss_type is 'focal'
             "lr": 0.0001,
             "epochs": 1000,
             "weight_decay": 0.02,
@@ -115,15 +176,34 @@ def get_loss_fn(config, train_data, device):
     Returns:
         torch.nn.Module: Loss function with optional pos_weight.
     """
-    if config["training"]["use_post_weight"]:
-        _, pos_weight = get_pos_weight(
-            train_data.patient_ids,
-            train_data.y,
-            config["training"]["max_post_weight"] + 1,
-            device,
+    loss_type = config["training"].get("loss_type", "bce")  # Default to bce
+
+    if loss_type == "focal":
+        print(
+            f"Using Focal Loss (alpha={config['training']['focal_alpha']}, gamma={config['training']['focal_gamma']})"
         )
-        return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    return nn.BCEWithLogitsLoss()
+        # Note: Focal Loss alpha handles imbalance, so we ignore use_post_weight here.
+        # You could potentially combine them, but typically alpha suffices.
+        return FocalLoss(
+            alpha=config["training"]["focal_alpha"],
+            gamma=config["training"]["focal_gamma"],
+            logits=True,  # Model outputs logits
+        )
+    elif loss_type == "bce":
+        if config["training"]["use_post_weight"]:
+            print("Using BCE Loss with Positive Weight")
+            _, pos_weight = get_pos_weight(
+                train_data.patient_ids,
+                train_data.y,
+                config["training"]["max_post_weight"] + 1,
+                device,
+            )
+            return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        else:
+            print("Using Standard BCE Loss")
+            return nn.BCEWithLogitsLoss()
+    else:
+        raise ValueError(f"Unknown loss_type: {loss_type}")
 
 
 # ============================================================================
@@ -308,8 +388,8 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
 
     num_heads = 4
     drop_out = 0.4
-    for d_model in [128]:
-        for num_layers in [4]:
+    for d_model in [64]:
+        for num_layers in [2]:
             iterations += 1
             print(
                 f"Running grid search: {iterations}/{total_iterations} " f"iterations"
