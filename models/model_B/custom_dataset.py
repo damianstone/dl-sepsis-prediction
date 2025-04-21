@@ -57,11 +57,11 @@ class SepsisPatientDataset(Dataset):
     def __getitem__(self, idx):
         """
         fetches all records for a given patient and converts them to tensors
-        assigns a patient-level label (1 if any record has sepsis)
+        returns features and labels for each timestep
 
         example output for patient B:
-        X = tensor([[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]])
-        y = tensor(1)  # because at least one record has sepsis
+        X = tensor([[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]])  # shape: (seq_len, feature_dim)
+        y = tensor([0, 0, 1])  # shape: (seq_len,) - labels for each timestep
         """
         patient_records = self.patient_to_records[idx]
         X = torch.stack(
@@ -69,70 +69,31 @@ class SepsisPatientDataset(Dataset):
         )
         y = torch.tensor([record[1] for record in patient_records], dtype=torch.float32)
 
-        return X, y.max()
+        return X, y
 
 
 def collate_fn(batch):
-    """
-    makes sequences the same length by padding shorter ones with zeros and
-    creates masks to tell the transformer which values are real data versus padding.
-
-    this function basically just makes the data compatible with the transformer model
-    in the following shape:
-    (sequence_length, batch_size, feature_dim).
-
-    Before padding, the data is in batch-first format:
-      X_batch = [
-          tensor([[0.1, 0.2], [0.3, 0.4]]),         # Patient A (2 records)
-          tensor([[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]])  # Patient B (3 records)
-      ]
-
-    After padding (still in batch-first format):
-      padded_X = [
-          [[0.1, 0.2], [0.3, 0.4], [0.0, 0.0]],  # Patient A (padded to 3 records)
-          [[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]]   # Patient B (no padding needed)
-      ]
-      attention_mask = [
-          [1, 1, 0],  # Patient A (third record is padding)
-          [1, 1, 1]   # Patient B (all records are valid)
-      ]
-
-    After transposing to match the default transformer configuration:
-      padded_X becomes:
-        [
-          [[0.1, 0.2], [0.5, 0.6]],  # Time step 1 for all patients
-          [[0.3, 0.4], [0.7, 0.8]],  # Time step 2 for all patients
-          [[0.0, 0.0], [0.9, 1.0]]   # Time step 3 (Patient A padded, Patient B valid)
-        ]
-      attention_mask becomes:
-        [
-          [1, 1],  # Time step 1
-          [1, 1],  # Time step 2
-          [0, 1]   # Time step 3
-        ]
-
-    final output shapes:
-      padded_X: (sequence_length, batch_size, feature_dim)
-      attention_mask: (sequence_length, batch_size)
-    """
     X_batch = [x for x, y in batch]
-    y_batch = torch.stack([y for _, y in batch])
+    y_batch = [y for x, y in batch]
 
     max_len = max([x.shape[0] for x in X_batch])
     feature_dim = X_batch[0].shape[1]
 
     padded_X = torch.zeros(len(X_batch), max_len, feature_dim)
+    padded_y = torch.zeros(len(X_batch), max_len)  # Added: for label padding
     attention_mask = torch.ones(len(X_batch), max_len)
 
-    for i, x in enumerate(X_batch):
+    for i, (x, y) in enumerate(zip(X_batch, y_batch)):
         padded_X[i, : x.shape[0], :] = x
+        padded_y[i, : x.shape[0]] = y  # Added: pad labels same as features
         attention_mask[i, x.shape[0] :] = 0
 
     # transpose -> (sequence_length, batch_size, feature_dim)
     padded_X = padded_X.transpose(0, 1)
+    padded_y = padded_y.transpose(0, 1)  # Added: transpose labels too
     attention_mask = attention_mask.transpose(0, 1).bool()
 
-    return padded_X, y_batch, attention_mask
+    return padded_X, padded_y, attention_mask
 
 
 """
