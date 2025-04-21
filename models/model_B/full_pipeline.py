@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import torch
 import yaml
-from architectures_m import TransformerTimeSeries
+from architectures import TransformerTimeSeries
 from custom_dataset import SepsisPatientDataset, collate_fn
 from model_utils.helper_functions import save_xperiment_csv, save_xperiment_yaml
 from model_utils.metrics import save_metrics

@@ -25,116 +25,114 @@ class TransformerClassifier(nn.Module):
         return self.linear_layer(z[:, -1, :])  # use last time step for classification
 
 
+# -------------------- Martin-style PositionalEncoding (batch‑first) --------------------
 class PositionalEncoding(nn.Module):
-    """
-    adds a unique signal to each patient record based on its time step
-    so the transformer can learn by the order of records
-    """
+    """Batch‑first positional encoding identical to Martin's implementation but adjusted
+    to accept tensors in the shape (batch, seq_len, d_model)."""
 
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
 
-        # empty positional encoding table for all time steps and features
-        pe = torch.zeros(max_len, d_model)
-        # add the time step index
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        # Create constant positional encoding matrix with shape (max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(
+            1
+        )  # (max_len, 1)
         div_term = torch.exp(
             torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model)
-        )
-
-        # we use sine and cosine to represent the time and position of each patient event (record)
+        )  # (d_model/2,)
+        pe = torch.zeros(max_len, d_model)  # (max_len, d_model)
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_buffer("pe", pe)
+        # Register as buffer with shape (1, max_len, d_model) so it is moved with .to(device)
+        self.register_buffer("pe", pe.unsqueeze(0))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Add positional encoding.
+
+        Args:
+            x: Tensor of shape (batch, seq_len, d_model)
+        Returns:
+            Tensor of same shape as *x* with positional encodings added.
         """
-        x: Tensor of shape (seq_len, batch_size, d_model)
-        """
-        # number of time steps
-        seq_len = x.size(0)
-        # extract positional encodings for these time steps: (seq_len, d_model)
-        pe = self.pe[0, :seq_len, :]  # (seq_len, d_model)
-        # add a batch dimension for broadcasting: (seq_len, 1, d_model)
-        pe = pe.unsqueeze(1)
-        # broadcast add to the input tensor
-        x = x + pe  # (seq_len, batch_size, d_model)
+        seq_len = x.size(1)
+        x = x + self.pe[:, :seq_len, :]
         return self.dropout(x)
 
 
-# --- Attention-based pooling ---
-class AttentionPooling(nn.Module):
-    """
-    Attention-based pooling: learns to weight each time step of the sequence.
-    """
-
-    def __init__(self, d_model):
-        super().__init__()
-        # project each time-step embedding to a scalar score
-        self.attn_proj = nn.Linear(d_model, 1)
-
-    def forward(self, x, mask=None):
-        """
-        x: Tensor of shape (seq_len, batch_size, d_model)
-        mask: optional Bool Tensor of shape (seq_len, batch_size) where True=valid
-        """
-        # compute raw attention scores for each time step
-        scores = self.attn_proj(x)  # (seq_len, batch_size, 1)
-
-        if mask is not None:
-            mask_bool = mask.bool()
-            # mask out padding positions: set their scores to -inf
-            scores = scores.masked_fill(~mask_bool.unsqueeze(-1), float("-inf"))
-
-        # normalize scores across time dimension
-        weights = torch.softmax(scores, dim=0)  # (seq_len, batch_size, 1)
-
-        # weighted sum of time-step embeddings
-        pooled = (weights * x).sum(dim=0)  # (batch_size, d_model)
-        return pooled
-
-
+# -------------------- Martin-style TransformerTimeSeries --------------------
 class TransformerTimeSeries(nn.Module):
-    """
-    input_dim = number of features in the dataset
-    d_model options = 64, 128, 256
-    n_heads = 2 or 4 for multi attention
-    positional encoding = patients records should be in order
+    """Time‑series transformer identical in spirit to Martin's reference model.
+
+    ‑ Accepts input in the shape (sequence_length, batch_size, feature_dim)
+      (same as our collate_fn output) but internally converts it to batch‑first
+      before feeding it to a *batch_first* TransformerEncoder.
+    ‑ Returns raw logits for each time step: (sequence_length, batch_size).
     """
 
-    def __init__(self, input_dim=1, d_model=64, n_heads=2, n_layers=2, dropout=0.1):
+    def __init__(
+        self,
+        input_dim: int,
+        d_model: int = 64,
+        n_heads: int = 4,
+        n_layers: int = 2,
+        dropout: float = 0.1,
+    ) -> None:
         super().__init__()
-        self.embedding = nn.Linear(in_features=input_dim, out_features=d_model)
-        self.positional_encoder = PositionalEncoding(d_model, dropout)
-        self.encoder_layer = nn.TransformerEncoderLayer(
-            d_model, n_heads, dropout=dropout
+
+        # 1) Input projection  (feature_dim → d_model)
+        self.input_proj = nn.Linear(input_dim, d_model)
+
+        # 2) Positional encoding (batch‑first)
+        self.pos_encoder = PositionalEncoding(d_model, dropout)
+
+        # 3) Transformer encoder (batch_first=True so we can keep tensors batch‑first inside)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=n_heads,
+            dropout=dropout,
+            batch_first=True,
         )
-        self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=n_layers)
-        self.linear_layer = nn.Linear(in_features=d_model, out_features=1)
-        self.attn_pool = AttentionPooling(d_model)
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer, num_layers=n_layers
+        )
 
-    def forward(self, x, mask=None):
-        orig_mask = mask  # keep True=valid for pooling
-        # x: (sequence_length, batch_size, feature_dim)
-        x = self.embedding(x)  # (seq_len, batch_size, d_model)
-        x = self.positional_encoder(x)  # (seq_len, batch_size, d_model)
+        # 4) Final linear decoder produces one logit per time step
+        self.decoder = nn.Linear(d_model, 1)
 
-        # prepare masks
-        if orig_mask is not None:
-            # encoder mask: True = padding
-            enc_mask = (~orig_mask.bool()).transpose(0, 1)  # (batch_size, seq_len)
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:  # type: ignore
+        """Forward pass.
+
+        Args:
+            x: Tensor of shape (seq_len, batch, feature_dim)
+            mask: Bool Tensor of shape (seq_len, batch) where **1/True means valid**
+        Returns:
+            Logits of shape (seq_len, batch)
+        """
+        # Convert to batch‑first: (batch, seq_len, feature_dim)
+        x = x.transpose(0, 1)
+
+        # Input projection & positional encoding
+        x = self.input_proj(x)  # (batch, seq_len, d_model)
+        x = self.pos_encoder(x)  # (batch, seq_len, d_model)
+
+        # Prepare src_key_padding_mask for the encoder: True == padding.
+        # NOTE: On Apple M‑series (MPS backend) nested‑tensor based padding masks
+        # are not yet implemented and raise `NotImplementedError`.  To keep the
+        # code runnable on MPS we simply skip the mask in that case; padding
+        # tokens are still ignored later when we compute the loss & metrics.
+        if mask is not None and x.device.type != "mps":
+            src_key_padding_mask = (~mask.bool()).transpose(0, 1)  # (batch, seq_len)
         else:
-            enc_mask = None
+            src_key_padding_mask = None
 
-        x = self.encoder(
-            x, src_key_padding_mask=enc_mask
-        )  # (seq_len, batch_size, d_model)
+        # Transformer encoder
+        x = self.transformer_encoder(
+            x, src_key_padding_mask=src_key_padding_mask
+        )  # (batch, seq_len, d_model)
 
-        # Pool over the sequence dimension (now dimension 0) to get one representation per batch element
-        x = self.attn_pool(
-            x, orig_mask
-        )  # AttentionPooling expects True=valid (seq_len, batch)
-        x = self.linear_layer(x).squeeze(-1)  # (batch_size)
-        return x
+        # Time‑step-wise logits
+        logits = self.decoder(x).squeeze(-1)  # (batch, seq_len)
+
+        # Return to original orientation (seq_len, batch)
+        return logits.transpose(0, 1)

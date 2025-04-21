@@ -103,40 +103,59 @@ def print_validation_metrics(
 
 
 def validation_loop(model, val_loader, loss_fn, device, threshold):
+    """Run model on validation set and compute patient‑level metrics.
+
+    The model returns per‑time‑step logits with shape (seq_len, batch).
+    For patient‑level prediction we aggregate with **max over time** which
+    corresponds to logical OR after sigmoid, boosting recall (same strategy
+    Martin used).
+    """
+
     model.eval()
     val_loss = 0.0
 
     full_y_pred, full_y_true = [], []
+
     with torch.no_grad():
         for X_batch, y_batch, attention_mask in val_loader:
-            X_batch, y_batch, attention_mask = (
-                X_batch.to(device),
-                y_batch.to(device),
-                attention_mask.to(device),
-            )
+            X_batch = X_batch.to(device)
+            y_batch = y_batch.to(device)
+            attention_mask = attention_mask.to(device)
 
-            y_logits = model(X_batch, mask=attention_mask)
-            y_probs = torch.sigmoid(y_logits)
-            y_preds = (y_probs >= threshold).float()
+            # ---- forward ----
+            y_logits_step = model(X_batch, mask=attention_mask)  # (seq_len, batch)
 
-            loss = loss_fn(y_logits.squeeze(), y_batch.float())
+            # mask out padded positions so they do not influence the max
+            if attention_mask is not None:
+                valid_mask = attention_mask.bool()
+                y_logits_step = y_logits_step.masked_fill(~valid_mask, float("-inf"))
 
-            full_y_pred.append(y_preds.squeeze().cpu())
+            # Patient‑level aggregation (max over time)
+            y_logits_patient, _ = y_logits_step.max(dim=0)  # (batch,)
+
+            y_probs_patient = torch.sigmoid(y_logits_patient)
+            y_pred_patient = (y_probs_patient >= threshold).float()
+
+            # ----- loss (patient‑level) -----
+            loss = loss_fn(y_logits_patient, y_batch.float())
+
+            # store
+            full_y_pred.append(y_pred_patient.cpu())
             full_y_true.append(y_batch.float().cpu())
-
             val_loss += loss.item()
 
     n_batches = len(val_loader)
-    val_loss = val_loss / n_batches
+    val_loss = val_loss / n_batches if n_batches else 0.0
 
-    # Concatenate tensors and convert to numpy arrays
+    # Concatenate tensors and convert to numpy arrays for metric computation
     full_y_pred = torch.cat(full_y_pred).numpy()
     full_y_true = torch.cat(full_y_true).numpy()
-    # Compute metrics on the full validation set
+
     val_acc = accuracy_score(full_y_true, full_y_pred)
     val_prec = precision_score(full_y_true, full_y_pred, zero_division=0)
     val_rec = recall_score(full_y_true, full_y_pred, zero_division=0)
     f2_score = get_f2_score(full_y_pred, full_y_true)
+
     return val_loss, val_acc, val_prec, val_rec, f2_score, full_y_pred, full_y_true
 
 
