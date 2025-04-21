@@ -69,7 +69,7 @@ class SepsisPatientDataset(Dataset):
         )
         y = torch.tensor([record[1] for record in patient_records], dtype=torch.float32)
 
-        return X, y
+        return X, y.max()
 
 
 def collate_fn(batch):
