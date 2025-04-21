@@ -84,8 +84,9 @@ class AttentionPooling(nn.Module):
         scores = self.attn_proj(x)  # (seq_len, batch_size, 1)
 
         if mask is not None:
+            mask_bool = mask.bool()
             # mask out padding positions: set their scores to -inf
-            scores = scores.masked_fill(~mask.unsqueeze(-1), float("-inf"))
+            scores = scores.masked_fill(~mask_bool.unsqueeze(-1), float("-inf"))
 
         # normalize scores across time dimension
         weights = torch.softmax(scores, dim=0)  # (seq_len, batch_size, 1)
@@ -115,19 +116,25 @@ class TransformerTimeSeries(nn.Module):
         self.attn_pool = AttentionPooling(d_model)
 
     def forward(self, x, mask=None):
+        orig_mask = mask  # keep True=valid for pooling
         # x: (sequence_length, batch_size, feature_dim)
         x = self.embedding(x)  # (seq_len, batch_size, d_model)
         x = self.positional_encoder(x)  # (seq_len, batch_size, d_model)
 
-        # Adjust mask shape: collate_fn returns mask as (seq_len, batch_size),
-        # but TransformerEncoder expects src_key_padding_mask as (batch_size, seq_len)
-        if mask is not None:
-            mask = ~mask.bool()  # invert mask (still shape: (seq_len, batch_size))
-            mask = mask.transpose(0, 1)  # now (batch_size, seq_len)
+        # prepare masks
+        if orig_mask is not None:
+            # encoder mask: True = padding
+            enc_mask = (~orig_mask.bool()).transpose(0, 1)  # (batch_size, seq_len)
+        else:
+            enc_mask = None
 
-        x = self.encoder(x, src_key_padding_mask=mask)  # (seq_len, batch_size, d_model)
+        x = self.encoder(
+            x, src_key_padding_mask=enc_mask
+        )  # (seq_len, batch_size, d_model)
 
         # Pool over the sequence dimension (now dimension 0) to get one representation per batch element
-        x = self.attn_pool(x, mask)  # (batch_size, d_model)
+        x = self.attn_pool(
+            x, orig_mask
+        )  # AttentionPooling expects True=valid (seq_len, batch)
         x = self.linear_layer(x).squeeze(-1)  # (batch_size)
         return x

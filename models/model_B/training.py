@@ -2,7 +2,26 @@ from pathlib import Path
 
 import torch
 from sklearn.metrics import accuracy_score, fbeta_score, precision_score, recall_score
+from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
+
+
+def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps):
+    """
+    Create a simple linear warmup + linear decay scheduler.
+    """
+
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        # after warmup, decay linearly to zero
+        return max(
+            0.0,
+            float(num_training_steps - current_step)
+            / float(max(1, num_training_steps - num_warmup_steps)),
+        )
+
+    return LambdaLR(optimizer, lr_lambda)
 
 
 def get_f2_score(y_pred, y_true):
@@ -126,6 +145,11 @@ def training_loop(
 ):
     epoch_counter, loss_counter, acc_counter = [], [], []
 
+    # set up LR scheduler: 10% of total steps as warmup
+    total_steps = epochs * len(train_loader)
+    warmup_steps = int(0.1 * total_steps)
+    scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
+
     patience = 10  # if the validation doesn't improve after K (patience) checks
     best_f2_score = 0
     epochs_without_improvement = 0
@@ -158,6 +182,7 @@ def training_loop(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
             batch_count += 1
 
