@@ -52,12 +52,13 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         # x: (seq_len, batch_size, d_model)
-        x = x + self.pe[: x.size(0)]  # Now pe will broadcast correctly
+        x = x + self.pe[: x.size(0)]
         return self.dropout(x)
 
 
 class TransformerTimeSeries(nn.Module):
     """
+    Will this patient develop sepsis at any point during their stay?
     input_dim = number of features in the dataset
     d_model options = 64, 128, 256
     n_heads = 2 or 4 for multi attention
@@ -73,39 +74,40 @@ class TransformerTimeSeries(nn.Module):
         self.attention = nn.Linear(d_model, 1)
         self.linear_layer = nn.Linear(in_features=d_model, out_features=1)
 
-    # def forward(self, x, mask=None):
-    #     # x: (sequence_length, batch_size, feature_dim)
-    #     x = self.embedding(x)  # (seq_len, batch_size, d_model)
-    #     x = self.positional_encoder(x)  # (seq_len, batch_size, d_model)
-
-    #     # Adjust mask shape: collate_fn returns mask as (seq_len, batch_size),
-    #     # but TransformerEncoder expects src_key_padding_mask as (batch_size, seq_len)
-    #     if mask is not None:
-    #         mask = ~mask.transpose(0, 1)
-
-    #     x = self.encoder(x, src_key_padding_mask=mask)  # (seq_len, batch_size, d_model)
-
-    #     # Pool over the sequence dimension (now dimension 0) to get one representation per batch element
-    #     x = x.max(dim=0).values  # max pooling over time
-    #     x = self.linear_layer(x).squeeze(-1)  # (batch_size)
-    #     return x
-
     def forward(self, x, mask=None):
         # x: (sequence_length, batch_size, feature_dim)
         x = self.embedding(x)  # (seq_len, batch_size, d_model)
-        x = self.positional_encoder(x)
+        x = self.positional_encoder(x)  # (seq_len, batch_size, d_model)
 
+        # Adjust mask shape: collate_fn returns mask as (seq_len, batch_size),
+        # but TransformerEncoder expects src_key_padding_mask as (batch_size, seq_len)
         if mask is not None:
             mask = ~mask.transpose(0, 1)
 
-        x = self.encoder(x, src_key_padding_mask=mask)
+        x = self.encoder(x, src_key_padding_mask=mask)  # (seq_len, batch_size, d_model)
 
-        # seq_len = x.size(0)
-        # temporal_bias = torch.exp(torch.arange(seq_len, device=x.device) / seq_len)
-        # temporal_bias = temporal_bias.unsqueeze(-1).unsqueeze(-1)  # Shape: (seq_len, 1, 1)
+        # x = x.max(dim=0).values  # max pooling over time
+        x = self.linear_layer(x).squeeze(-1)  # (batch_size)
+        return x
 
-        # Attention-weighted pooling
-        attention_weights = torch.softmax(self.attention(x), dim=0)
-        x = torch.sum(x * attention_weights, dim=0)  # Weighted sum across time
+    # def forward(self, x, mask=None):
+    #     # x: (sequence_length, batch_size, feature_dim)
+    #     x = self.embedding(x)  # (seq_len, batch_size, d_model)
+    #     x = self.positional_encoder(x)
 
-        return self.linear_layer(x).squeeze(-1)
+    #     if mask is not None:
+    #         mask = ~mask.transpose(0, 1)
+
+    #     x = self.encoder(x, src_key_padding_mask=mask)
+
+    #     # gives more weight to later measurements
+    #     seq_len = x.size(0)
+    #     temporal_bias = torch.exp(torch.arange(seq_len, device=x.device) / seq_len)
+    #     # Shape: (seq_len, 1, 1)
+    #     temporal_bias = temporal_bias.unsqueeze(-1).unsqueeze(-1)
+
+    #     # Attention-weighted pooling
+    #     attention_weights = torch.softmax(self.attention(x), dim=0)
+    #     x = torch.sum(x * attention_weights, dim=0)  # Weighted sum across time
+
+    #     return self.linear_layer(x).squeeze(-1)

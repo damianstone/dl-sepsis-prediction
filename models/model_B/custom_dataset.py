@@ -3,7 +3,9 @@ from collections import defaultdict
 import torch
 from torch.utils.data import Dataset
 
-# NOTE: purpose is to return in tensors and convert into sequences format + padding and masking
+"""
+    Will this patient develop sepsis at any point during their stay?
+"""
 
 
 class SepsisPatientDataset(Dataset):

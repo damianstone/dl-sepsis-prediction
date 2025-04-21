@@ -83,6 +83,21 @@ def print_validation_metrics(
     print(f"F2-Score:   {val_f2*100:.2f}%")
 
 
+def compute_masked_loss(outputs, targets, attention_mask, loss_fn):
+    # outputs: (seq_len, batch_size)
+    outputs = outputs.transpose(0, 1)  # (batch_size, seq_len)
+    valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
+
+    # Expand targets to match sequence length
+    expanded_targets = targets.unsqueeze(1).expand(-1, outputs.size(1))
+
+    # Only compute loss on valid timesteps
+    masked_outputs = outputs[valid_mask]
+    masked_targets = expanded_targets[valid_mask]
+
+    return loss_fn(masked_outputs, masked_targets)
+
+
 def validation_loop(model, val_loader, loss_fn, device, threshold):
     model.eval()
     val_loss = 0.0
@@ -96,14 +111,21 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
                 attention_mask.to(device),
             )
 
+            # Forward pass
             y_logits = model(X_batch, mask=attention_mask)
             y_probs = torch.sigmoid(y_logits)
-            y_preds = (y_probs >= threshold).float()
 
-            loss = loss_fn(y_logits.squeeze(), y_batch.float())
+            # getting fucking predictions
+            valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
+            y_preds = (y_probs.transpose(0, 1)[valid_mask] >= threshold).float()
+            y_true = y_batch.unsqueeze(1).expand(-1, y_probs.size(0))[
+                valid_mask
+            ]  # squeeze my dick
+            # compute loss
+            loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
 
-            full_y_pred.append(y_preds.squeeze().cpu())
-            full_y_true.append(y_batch.float().cpu())
+            full_y_pred.append(y_preds.cpu())
+            full_y_true.append(y_true.cpu())
 
             val_loss += loss.item()
 
@@ -126,10 +148,10 @@ def training_loop(
 ):
     epoch_counter, loss_counter, acc_counter = [], [], []
 
-    patience = 10  # if the validation doesn't improve after K (patience) checks
+    patience = 10
     best_f2_score = 0
     epochs_without_improvement = 0
-    min_epochs = 50
+    min_epochs = 20
     threshold = 0.5
 
     for epoch in range(epochs):
@@ -149,10 +171,14 @@ def training_loop(
             # Forward pass
             y_logits = model(X_batch, mask=attention_mask)
             y_probs = torch.sigmoid(y_logits)
-            y_preds = (y_probs >= threshold).float()
+
+            # getting fucking predictions
+            valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
+            y_preds = (y_probs.transpose(0, 1)[valid_mask] >= threshold).float()
+            y_true = y_batch.unsqueeze(1).expand(-1, y_probs.size(0))[valid_mask]
 
             # compute loss
-            loss = loss_fn(y_logits.squeeze(), y_batch.float())
+            loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
 
             # Backpropagation
             optimizer.zero_grad()
@@ -163,8 +189,8 @@ def training_loop(
 
             # update epoch metrics and store predictions
             epoch_loss += loss.item()
-            epoch_y_pred.append(y_preds.squeeze().cpu())
-            epoch_y_true.append(y_batch.float().cpu())
+            epoch_y_pred.append(y_preds.cpu())
+            epoch_y_true.append(y_true.cpu())
 
             progress_bar.set_postfix({"Loss": loss.item()})
 
