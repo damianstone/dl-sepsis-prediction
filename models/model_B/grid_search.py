@@ -149,7 +149,9 @@ class GridSearchModel:
         self.model_name = config["xperiment"]["name"]
         self.loss_fn = get_loss_fn(config, train_data, device)
         self.optimizer = torch.optim.AdamW(
-            self.model.parameters(), lr=config["training"]["lr"]
+            self.model.parameters(),
+            lr=config["training"]["lr"],
+            weight_decay=config["training"]["weight_decay"],
         )
 
     def train_and_evaluate(self):
@@ -305,6 +307,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
 
     num_heads = 4
     drop_out = 0.2
+    weight_decay = 0.01
     for d_model in [128]:
         for num_layers in [2]:
             iterations += 1
@@ -320,6 +323,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
                 "num_layers": num_layers,
                 "drop_out": drop_out,
                 "input_dimension": in_dim,
+                "weight_decay": weight_decay,
             }
 
             model = GridSearchModel(config_new, device, train_data, val_data, in_dim)

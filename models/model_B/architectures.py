@@ -68,27 +68,13 @@ class TransformerTimeSeries(nn.Module):
         super().__init__()
         self.embedding = nn.Linear(in_features=input_dim, out_features=d_model)
         self.positional_encoder = PositionalEncoding(d_model, dropout)
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads)
+        self.encoder_layer = nn.TransformerEncoderLayer(
+            d_model, n_heads, dropout=dropout
+        )
         self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=n_layers)
         self.attention = nn.Linear(d_model, 1)
+        self.output_norm = nn.LayerNorm(d_model)
         self.linear_layer = nn.Linear(in_features=d_model, out_features=1)
-
-    # def forward(self, x, mask=None):
-    #     # x: (sequence_length, batch_size, feature_dim)
-    #     x = self.embedding(x)  # (seq_len, batch_size, d_model)
-    #     x = self.positional_encoder(x)  # (seq_len, batch_size, d_model)
-
-    #     # Adjust mask shape: collate_fn returns mask as (seq_len, batch_size),
-    #     # but TransformerEncoder expects src_key_padding_mask as (batch_size, seq_len)
-    #     if mask is not None:
-    #         mask = ~mask.transpose(0, 1)
-
-    #     x = self.encoder(x, src_key_padding_mask=mask)  # (seq_len, batch_size, d_model)
-
-    #     # Pool over the sequence dimension (now dimension 0) to get one representation per batch element
-    #     x = x.max(dim=0).values  # max pooling over time
-    #     x = self.linear_layer(x).squeeze(-1)  # (batch_size)
-    #     return x
 
     def forward(self, x, mask=None):
         # x: (sequence_length, batch_size, feature_dim)
@@ -107,5 +93,6 @@ class TransformerTimeSeries(nn.Module):
         # Attention-weighted pooling
         attention_weights = torch.softmax(self.attention(x), dim=0)
         x = torch.sum(x * attention_weights, dim=0)  # Weighted sum across time
+        x = self.output_norm(x)  # Apply LayerNorm
 
         return self.linear_layer(x).squeeze(-1)
