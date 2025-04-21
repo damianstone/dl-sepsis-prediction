@@ -84,6 +84,7 @@ def setup_base_config():
             "max_post_weight": 5,
             "lr": 0.0001,
             "epochs": 1000,
+            "weight_decay": 0.01,
         },
         "testing": {
             "batch_size": 256,
