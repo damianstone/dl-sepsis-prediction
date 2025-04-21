@@ -82,7 +82,7 @@ def setup_base_config():
             "batch_size": 256,
             "use_post_weight": True,
             "max_post_weight": 5,
-            "lr": 0.0001,
+            "lr": 0.0003,
             "epochs": 1000,
         },
         "testing": {
@@ -304,9 +304,9 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     total_iterations = 4
 
     num_heads = 4
-    drop_out = 0.1
+    drop_out = 0.2
     for d_model in [128]:
-        for num_layers in [2]:
+        for num_layers in [4]:
             iterations += 1
             print(
                 f"Running grid search: {iterations}/{total_iterations} " f"iterations"
@@ -350,7 +350,7 @@ def pipeline():
     val_data = get_data(config, "val")
     test_data = get_data(config, "test")
     best_models = {}
-    for dataset_type in ["undersampled"]:
+    for dataset_type in ["oversampled"]:
         print(f"Running grid search for {dataset_type}")
         config_new = copy.deepcopy(config)
         config_new["dataset_type"] = dataset_type
