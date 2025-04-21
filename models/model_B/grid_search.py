@@ -119,7 +119,7 @@ def get_loss_fn(config, train_data, device):
         _, pos_weight = get_pos_weight(
             train_data.patient_ids,
             train_data.y,
-            config["training"]["max_post_weight"],
+            config["training"]["max_post_weight"] + 1,
             device,
         )
         return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
