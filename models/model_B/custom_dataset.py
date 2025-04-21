@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset
 
 """
-    Will this patient develop sepsis at any point during their stay?
+Will this patient develop sepsis at any point during their stay?
 """
 
 
@@ -56,12 +56,7 @@ class SepsisPatientDataset(Dataset):
 
     def __getitem__(self, idx):
         """
-        fetches all records for a given patient and converts them to tensors
-        returns features and labels for each timestep
-
-        example output for patient B:
-        X = tensor([[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]])  # shape: (seq_len, feature_dim)
-        y = tensor([0, 0, 1])  # shape: (seq_len,) - labels for each timestep
+        if any time step was positive sepsis we return Y = 1, making all the time steps to the positive
         """
         patient_records = self.patient_to_records[idx]
         X = torch.stack(
@@ -69,31 +64,31 @@ class SepsisPatientDataset(Dataset):
         )
         y = torch.tensor([record[1] for record in patient_records], dtype=torch.float32)
 
-        return X, y
+        return X, y.max()
 
 
 def collate_fn(batch):
+    # all the sequences
     X_batch = [x for x, y in batch]
-    y_batch = [y for x, y in batch]
+    # all the labels in one tensor for each group of sequences -> so a group of sequences have the same label
+    y_batch = torch.stack([y for _, y in batch])
 
+    # find the max sequence length between all the time steps (the patient with more records)
     max_len = max([x.shape[0] for x in X_batch])
     feature_dim = X_batch[0].shape[1]
 
-    padded_X = torch.zeros(len(X_batch), max_len, feature_dim)
-    padded_y = torch.zeros(len(X_batch), max_len)  # Added: for label padding
-    attention_mask = torch.ones(len(X_batch), max_len)
+    # (seq length, batch size, feature dim)
+    padded_X = torch.zeros(max_len, len(X_batch), feature_dim)
+    # (seq length, batch size)
+    attention_mask = torch.zeros(max_len, len(X_batch))
 
-    for i, (x, y) in enumerate(zip(X_batch, y_batch)):
-        padded_X[i, : x.shape[0], :] = x
-        padded_y[i, : x.shape[0]] = y  # Added: pad labels same as features
-        attention_mask[i, x.shape[0] :] = 0
+    for patient_id, patient_records in enumerate(X_batch):
+        seq_len = patient_records.shape[0]
+        padded_X[:seq_len, patient_id, :] = patient_records
+        attention_mask[:seq_len, patient_id] = 0  # valid data positions = 0
+        attention_mask[seq_len:, patient_id] = 1  # padding positions = 1 = True
 
-    # transpose -> (sequence_length, batch_size, feature_dim)
-    padded_X = padded_X.transpose(0, 1)
-    padded_y = padded_y.transpose(0, 1)  # Added: transpose labels too
-    attention_mask = attention_mask.transpose(0, 1).bool()
-
-    return padded_X, padded_y, attention_mask
+    return padded_X, y_batch, attention_mask.bool()
 
 
 """

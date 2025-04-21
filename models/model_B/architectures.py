@@ -58,7 +58,6 @@ class PositionalEncoding(nn.Module):
 
 class TransformerTimeSeries(nn.Module):
     """
-    Will this patient develop sepsis at any point during their stay?
     input_dim = number of features in the dataset
     d_model options = 64, 128, 256
     n_heads = 2 or 4 for multi attention
@@ -75,22 +74,39 @@ class TransformerTimeSeries(nn.Module):
         self.linear_layer = nn.Linear(in_features=d_model, out_features=1)
 
     def forward(self, x, mask=None):
+        """
+        does this specific time step show sepsis?
+        predict the probability of sepsis for each time step for each patient
+
+        1. order the records by time using positional encoding
+        2. the transformer predict for each time step using the full sequence contenxt (patient records)
+        3. the model return one prediction per time step for each patient
+        """
         # x: (sequence_length, batch_size, feature_dim)
-        x = self.embedding(x)  # (seq_len, batch_size, d_model)
-        x = self.positional_encoder(x)  # (seq_len, batch_size, d_model)
+        x = self.embedding(x)
+        # (seq_len, batch_size, d_model)
+        x = self.positional_encoder(x)
 
-        # Adjust mask shape: collate_fn returns mask as (seq_len, batch_size),
-        # but TransformerEncoder expects src_key_padding_mask as (batch_size, seq_len)
+        # collate_fn returns the mask as (seq_len, batch_size),
         if mask is not None:
-            mask = ~mask.transpose(0, 1)
+            # mask in encoder expects (batch_size, seq_len)
+            mask = mask.transpose(0, 1)
 
-        x = self.encoder(x, src_key_padding_mask=mask)  # (seq_len, batch_size, d_model)
-
-        # x = x.max(dim=0).values  # max pooling over time
-        x = self.linear_layer(x).squeeze(-1)  # (batch_size)
+        x = self.encoder(x, src_key_padding_mask=mask)
+        # return (seq len, batch size)
+        x = self.linear_layer(x).squeeze(-1)
         return x
 
     # def forward(self, x, mask=None):
+    #     """
+    #         predict if the patient have sepsis looking at all the time steps at once
+    #         1 patient -> multiple time steps -> 1 prediction (global)
+
+    #         1. input: multiple time steps for all patients in the batch
+    #         2. the transformer processes the entire sequence of time steps for each patient at one, not one time step at a time
+    #         3. the positional encoder ensures the model know the order of records
+    #         4. the model return one prediction per patient
+    #     """
     #     # x: (sequence_length, batch_size, feature_dim)
     #     x = self.embedding(x)  # (seq_len, batch_size, d_model)
     #     x = self.positional_encoder(x)

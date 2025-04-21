@@ -83,16 +83,25 @@ def print_validation_metrics(
     print(f"F2-Score:   {val_f2*100:.2f}%")
 
 
-def compute_masked_loss(outputs, targets, attention_mask, loss_fn):
-    # outputs: (seq_len, batch_size)
-    # targets: (seq_len, batch_size)
-    outputs = outputs.transpose(0, 1)  # (batch_size, seq_len)
-    targets = targets.transpose(0, 1)  # (batch_size, seq_len)
-    valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
+def compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn):
+    """
+    at every hour, predict whether this patient ever gets sepsis
+    doesn't not learn when exactly the patient gets sepsis
 
-    # Only compute loss on valid timesteps
-    masked_outputs = outputs[valid_mask]
-    masked_targets = targets[valid_mask]
+    every (hour, patient) position receives its own gradient, so the network updates weights from each timestep
+    """
+    # y_logits = (seq len, batch size)
+    # y_batch = (batch size, ) -> one label per patient
+    # valid_mask = (seq len, batch size) -> true for valid positions
+
+    expanded_targets = y_batch.unsqueeze(0)  # (1, batch size)
+    # (seq len, batch size)
+    expanded_targets = expanded_targets.expand(y_logits.size(0), y_logits.size(1))
+    # padded positions = True (seq len, batch size)
+    valid_mask = ~attention_mask  # make valid positions to be = True
+
+    masked_outputs = y_logits[valid_mask]
+    masked_targets = expanded_targets[valid_mask]
 
     return loss_fn(masked_outputs, masked_targets)
 
@@ -112,18 +121,20 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
 
             # Forward pass
             y_logits = model(X_batch, mask=attention_mask)
-            y_probs = torch.sigmoid(y_logits)
 
-            # getting fucking predictions
-            valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
-            y_preds = (y_probs.transpose(0, 1)[valid_mask] >= threshold).float()
-            y_true = y_batch.transpose(0, 1)[valid_mask]
+            # NOTE: max pooling for final prediction at patient level
+            valid = ~attention_mask  # true for non padded values
+            # push padded positions to −∞  (never chosen by max)
+            masked_logits = y_logits.masked_fill(valid, -1e9)
+            patient_level_logits, _ = masked_logits.max(dim=0)  # (batch size)
+            patient_level_probs = torch.sigmoid(patient_level_logits)
+            patient_level_preds = (patient_level_probs >= threshold).float()
 
             # compute loss
             loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
 
-            full_y_pred.append(y_preds.cpu())
-            full_y_true.append(y_true.cpu())
+            full_y_pred.append(patient_level_preds.cpu())
+            full_y_true.append(y_batch.cpu())
 
             val_loss += loss.item()
 
@@ -166,14 +177,19 @@ def training_loop(
                 attention_mask.to(device),
             )
 
+            # X_batch = (seq, batch size, feature dim)
+            # Y_batch = (batch size)
+
             # Forward pass
             y_logits = model(X_batch, mask=attention_mask)
-            y_probs = torch.sigmoid(y_logits)
 
-            # getting fucking predictions
-            valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
-            y_preds = (y_probs.transpose(0, 1)[valid_mask] >= threshold).float()
-            y_true = y_batch.transpose(0, 1)[valid_mask]
+            # NOTE: max pooling for final prediction at patient level
+            valid = ~attention_mask
+            # push padded positions to −∞  (never chosen by max)
+            masked_logits = y_logits.masked_fill(valid, -1e9)
+            patient_level_logits, _ = masked_logits.max(dim=0)
+            patient_level_probs = torch.sigmoid(patient_level_logits)
+            patient_level_preds = (patient_level_probs >= threshold).float()
 
             # compute loss
             loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
@@ -184,11 +200,10 @@ def training_loop(
             optimizer.step()
 
             batch_count += 1
-
-            # update epoch metrics and store predictions
             epoch_loss += loss.item()
-            epoch_y_pred.append(y_preds.cpu())
-            epoch_y_true.append(y_true.cpu())
+
+            epoch_y_pred.append(patient_level_preds.cpu())
+            epoch_y_true.append(y_batch.cpu())
 
             progress_bar.set_postfix({"Loss": loss.item()})
 
@@ -223,6 +238,7 @@ def training_loop(
                     if epochs_without_improvement >= patience:
                         print("early stopping triggered")
                         break
+
     model = load_model(experiment_name, model)
     res = {
         "epoch_counter": epoch_counter,
