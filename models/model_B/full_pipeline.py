@@ -210,7 +210,6 @@ def full_pipeline():
         shuffle=True,
         collate_fn=collate_fn,
         drop_last=True,
-        num_workers=4,
     )
     val_dataset = SepsisPatientDataset(
         X_val.values,
@@ -224,7 +223,6 @@ def full_pipeline():
         shuffle=True,
         collate_fn=collate_fn,
         drop_last=True,
-        num_workers=4,
     )
 
     # -------------------------------- MODEL --------------------------------
