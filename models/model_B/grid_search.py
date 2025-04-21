@@ -82,7 +82,7 @@ def setup_base_config():
             "batch_size": 256,
             "use_post_weight": True,
             "max_post_weight": 5,
-            "lr": 0.0001,
+            "lr": 0.00001,
             "epochs": 1000,
         },
         "testing": {
@@ -304,7 +304,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     total_iterations = 4
 
     num_heads = 4
-    drop_out = 0.2
+    drop_out = 0.3
     for d_model in [128]:
         for num_layers in [2]:
             iterations += 1
