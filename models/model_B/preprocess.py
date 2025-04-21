@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 from model_utils.helper_functions import display_balance_statistics
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from sklearn.utils import resample
 
 # NOTE: purpose is just to split the data
@@ -151,6 +152,38 @@ def reduce_dataset(df, train_sample_fraction=0.05):
     return quick_train_df
 
 
+def scale_dfs(train_df, val_df, test_df, label="SepsisLabel", eps=1e-6):
+    feature_cols = [c for c in train_df.columns if c != label and c != "patient_id"]
+    scaler = StandardScaler().fit(train_df[feature_cols])
+
+    def apply_scaling(df):
+        df_scaled = df.copy()
+        df_scaled[feature_cols] = scaler.transform(df[feature_cols])
+        return df_scaled
+
+    train_scaled = apply_scaling(train_df)
+    val_scaled = apply_scaling(val_df)
+    test_scaled = apply_scaling(test_df)
+    means = train_scaled[feature_cols].mean()
+    stds = train_scaled[feature_cols].std(ddof=0)
+
+    mean_pass = (means.abs() < eps).all()
+    std_pass = ((stds - 1).abs() < eps).all()
+
+    df_test = pd.DataFrame(
+        {
+            "mean": means.round(6),
+            "std": stds.round(6),
+            "mean_ok": (means.abs() < eps),
+            "std_ok": ((stds - 1).abs() < eps),
+        }
+    )
+    print(f"\nAll means ≈ 0? {'✅' if mean_pass else '❌'}")
+    print(f"All stds ≈ 1?  {'✅' if std_pass else '❌'}\n")
+
+    return train_scaled, val_scaled, test_scaled
+
+
 def preprocess_data(
     data_file_name,
     sampling=True,
@@ -215,6 +248,11 @@ def preprocess_data(
             df=train_df, method=sampling_method, minority_ratio=sampling_minority_ratio
         )
 
+    train_df, val_df, test_df = scale_dfs(
+        train_df, val_df, test_df, label="SepsisLabel"
+    )
+
+    # save processed data
     save_processed_data(
         project_root, train_df, val_df, test_df, file_name="small_imputed_sofa"
     )
