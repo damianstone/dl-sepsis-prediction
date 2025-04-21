@@ -50,8 +50,49 @@ class PositionalEncoding(nn.Module):
         self.register_buffer("pe", pe)
 
     def forward(self, x):
-        x = x + self.pe[:, : x.size(1)]
+        """
+        x: Tensor of shape (seq_len, batch_size, d_model)
+        """
+        # number of time steps
+        seq_len = x.size(0)
+        # extract positional encodings for these time steps: (seq_len, d_model)
+        pe = self.pe[0, :seq_len, :]  # (seq_len, d_model)
+        # add a batch dimension for broadcasting: (seq_len, 1, d_model)
+        pe = pe.unsqueeze(1)
+        # broadcast add to the input tensor
+        x = x + pe  # (seq_len, batch_size, d_model)
         return self.dropout(x)
+
+
+# --- Attention-based pooling ---
+class AttentionPooling(nn.Module):
+    """
+    Attention-based pooling: learns to weight each time step of the sequence.
+    """
+
+    def __init__(self, d_model):
+        super().__init__()
+        # project each time-step embedding to a scalar score
+        self.attn_proj = nn.Linear(d_model, 1)
+
+    def forward(self, x, mask=None):
+        """
+        x: Tensor of shape (seq_len, batch_size, d_model)
+        mask: optional Bool Tensor of shape (seq_len, batch_size) where True=valid
+        """
+        # compute raw attention scores for each time step
+        scores = self.attn_proj(x)  # (seq_len, batch_size, 1)
+
+        if mask is not None:
+            # mask out padding positions: set their scores to -inf
+            scores = scores.masked_fill(~mask.unsqueeze(-1), float("-inf"))
+
+        # normalize scores across time dimension
+        weights = torch.softmax(scores, dim=0)  # (seq_len, batch_size, 1)
+
+        # weighted sum of time-step embeddings
+        pooled = (weights * x).sum(dim=0)  # (batch_size, d_model)
+        return pooled
 
 
 class TransformerTimeSeries(nn.Module):
@@ -66,9 +107,12 @@ class TransformerTimeSeries(nn.Module):
         super().__init__()
         self.embedding = nn.Linear(in_features=input_dim, out_features=d_model)
         self.positional_encoder = PositionalEncoding(d_model, dropout)
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads)
+        self.encoder_layer = nn.TransformerEncoderLayer(
+            d_model, n_heads, dropout=dropout
+        )
         self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=n_layers)
         self.linear_layer = nn.Linear(in_features=d_model, out_features=1)
+        self.attn_pool = AttentionPooling(d_model)
 
     def forward(self, x, mask=None):
         # x: (sequence_length, batch_size, feature_dim)
@@ -84,6 +128,6 @@ class TransformerTimeSeries(nn.Module):
         x = self.encoder(x, src_key_padding_mask=mask)  # (seq_len, batch_size, d_model)
 
         # Pool over the sequence dimension (now dimension 0) to get one representation per batch element
-        x = x.mean(dim=0)  # (batch_size, d_model)
+        x = self.attn_pool(x, mask)  # (batch_size, d_model)
         x = self.linear_layer(x).squeeze(-1)  # (batch_size)
         return x

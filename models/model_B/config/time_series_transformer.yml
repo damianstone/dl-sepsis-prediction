@@ -1,14 +1,14 @@
 xperiment:
-  name: '13_oversampled_64_4_2'
-  model: 'time_series'
+  name: "13_oversampled_64_4_2_test_commit"
+  model: "time_series"
 
 data:
-  data_file_name: 'preprocessed_data'
+  data_file_name: "V2_preprocessed"
   use_last_processed_data: false
   sampling: true
   sampling_method: undersample
   sampling_minority_ratio: 0.3
-  train_sample_fraction: 1
+  train_sample_fraction: 0.5
   test_size: 0.2
   random_state: 42
 
@@ -19,11 +19,11 @@ model:
   drop_out: 0.1
 
 training:
-  batch_size: 128
+  batch_size: 64
   use_post_weight: true
   max_post_weight: 5
   lr: 0.001
   epochs: 1000
 
 testing:
-  batch_size: 128
+  batch_size: 64
