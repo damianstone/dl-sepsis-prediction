@@ -304,7 +304,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     total_iterations = 4
 
     num_heads = 4
-    drop_out = 0.2
+    drop_out = 0.3
     for d_model in [128]:
         for num_layers in [2]:
             iterations += 1
