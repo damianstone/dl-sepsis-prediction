@@ -84,7 +84,7 @@ def setup_base_config():
             "max_post_weight": 5,
             "lr": 0.0001,
             "epochs": 1000,
-            "weight_decay": 0.01,
+            "weight_decay": 0.02,
         },
         "testing": {
             "batch_size": 256,
@@ -307,10 +307,9 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
     total_iterations = 4
 
     num_heads = 4
-    drop_out = 0.3
-    weight_decay = 0.01
-    for d_model in [64]:
-        for num_layers in [2]:
+    drop_out = 0.4
+    for d_model in [128]:
+        for num_layers in [4]:
             iterations += 1
             print(
                 f"Running grid search: {iterations}/{total_iterations} " f"iterations"
@@ -324,7 +323,6 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
                 "num_layers": num_layers,
                 "drop_out": drop_out,
                 "input_dimension": in_dim,
-                "weight_decay": weight_decay,
             }
 
             model = GridSearchModel(config_new, device, train_data, val_data, in_dim)
