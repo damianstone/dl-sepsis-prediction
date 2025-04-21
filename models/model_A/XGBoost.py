@@ -26,7 +26,14 @@ def find_project_root(marker=".gitignore"):
 
 def load_top_features(n=20):
     root = find_project_root()
-    shap_path = (root/ "models"/ "model_A"/ "outputs"/ "shap"/ "shap_features_engineered.csv")
+    shap_path = (
+        root
+        / "models"
+        / "model_A"
+        / "outputs"
+        / "shap"
+        / "shap_features_engineered.csv"
+    )
     shap_df = pd.read_csv(shap_path)
 
     shap_df_sorted = shap_df.sort_values(by="mean_shap_positive", ascending=False)
@@ -46,13 +53,15 @@ def load_top_features(n=20):
 
 def load_data(features):
     root = find_project_root()
-    data_path = (root / "dataset" / "XGBoost" / "train_balanced.parquet")
+    data_path = root / "dataset" / "XGBoost" / "train_balanced.parquet"
     df = pd.read_parquet(data_path)
     if not isinstance(df.index, pd.MultiIndex):
         df.set_index(["patient_id"], inplace=True)
 
     X = df[features].fillna(-1)
-    label_col = ("SepsisLabel_patient" if "SepsisLabel_patient" in df.columns else "SepsisLabel")
+    label_col = (
+        "SepsisLabel_patient" if "SepsisLabel_patient" in df.columns else "SepsisLabel"
+    )
     y = df[label_col]
     return X, y
 
@@ -111,9 +120,15 @@ def train_xgboost(X, y, params, n_splits=3):
 
         X_train, y_train = X[train_mask], y[train_mask]
         X_test, y_test = X[test_mask], y[test_mask]
-        print(f"Fold {fold} - Train samples: {len(y_train)} (Pos: {y_train.sum()}, Neg: {len(y_train) - y_train.sum()})")
-        print(f"Fold {fold} - Test samples: {len(y_test)} (Pos: {y_test.sum()}, Neg: {len(y_test) - y_test.sum()})")
-        print(f"Fold {fold} - Positive rate in train: {y_train.mean():.3f}, test: {y_test.mean():.3f}")
+        print(
+            f"Fold {fold} - Train samples: {len(y_train)} (Pos: {y_train.sum()}, Neg: {len(y_train) - y_train.sum()})"
+        )
+        print(
+            f"Fold {fold} - Test samples: {len(y_test)} (Pos: {y_test.sum()}, Neg: {len(y_test) - y_test.sum()})"
+        )
+        print(
+            f"Fold {fold} - Positive rate in train: {y_train.mean():.3f}, test: {y_test.mean():.3f}"
+        )
 
         dtrain = xgb.DMatrix(X_train, label=y_train)
         dtest = xgb.DMatrix(X_test, label=y_test)
@@ -136,7 +151,9 @@ def train_xgboost(X, y, params, n_splits=3):
         recall = recall_score(y_test, y_pred)
         precision = precision_score(y_test, y_pred)
 
-        print(f"Fold {fold} - AUROC: {auc:.4f}, F1: {f1:.4f}, F2: {f2:.4f}, Recall: {recall:.4f}, Precision: {precision:.4f}")
+        print(
+            f"Fold {fold} - AUROC: {auc:.4f}, F1: {f1:.4f}, F2: {f2:.4f}, Recall: {recall:.4f}, Precision: {precision:.4f}"
+        )
 
         fold_results.append(
             {
@@ -146,14 +163,17 @@ def train_xgboost(X, y, params, n_splits=3):
                 "F2": f2,
                 "Recall": recall,
                 "Precision": precision,
-            })
+            }
+        )
 
         fold_dir = output_base / f"fold{fold}"
         fold_dir.mkdir()
         fold_dirs.append(fold_dir)
 
         # visualizations
-        pd.DataFrame(classification_report(y_test, y_pred, output_dict=True)).T.to_csv(fold_dir / "report.csv")
+        pd.DataFrame(classification_report(y_test, y_pred, output_dict=True)).T.to_csv(
+            fold_dir / "report.csv"
+        )
 
         model_path = fold_dir / "xgb_model.ubj"
         bst.save_model(str(model_path))
@@ -194,8 +214,12 @@ def train_xgboost(X, y, params, n_splits=3):
     best_model_path = output_base / "best_xgb_model.ubj "
     shutil.copy(fold_dirs[best_idx] / "xgb_model.ubj", best_model_path)
 
-    shutil.copy(fold_dirs[best_idx] / "xgb_pr_curve.png", output_base / "best_pr_curve.png")
-    print(f"Best model from Fold {df_summary.loc[best_idx, 'fold']} saved to {best_model_path}")
+    shutil.copy(
+        fold_dirs[best_idx] / "xgb_pr_curve.png", output_base / "best_pr_curve.png"
+    )
+    print(
+        f"Best model from Fold {df_summary.loc[best_idx, 'fold']} saved to {best_model_path}"
+    )
 
 
 def main():

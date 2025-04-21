@@ -25,10 +25,14 @@ def run_shap_on_data(parquet_file="train_balanced.parquet", output_tag="default"
     if "patient_id" not in df.columns and "patient_id" in df.index.names:
         df = df.reset_index()
 
-    label_col = ("SepsisLabel_patient" if "SepsisLabel_patient" in df.columns else "SepsisLabel")
+    label_col = (
+        "SepsisLabel_patient" if "SepsisLabel_patient" in df.columns else "SepsisLabel"
+    )
 
-    exclude = ["patient_id",label_col]
-    features = df.drop(columns=[col for col in exclude if col in df.columns], errors="ignore").fillna(-1)
+    exclude = ["patient_id", label_col]
+    features = df.drop(
+        columns=[col for col in exclude if col in df.columns], errors="ignore"
+    ).fillna(-1)
     labels = df[label_col].astype(int)
 
     model = xgb.XGBClassifier(n_estimators=400, max_depth=6, eval_metric="logloss")
@@ -76,18 +80,22 @@ def run_shap_on_data(parquet_file="train_balanced.parquet", output_tag="default"
     top_positive_features = (
         shap_df.sort_values(by="mean_shap_positive", ascending=False)
         .head(20)["feature"]
-        .tolist())
-    
+        .tolist()
+    )
+
     top_positive_indices = [features.columns.get_loc(f) for f in top_positive_features]
     shap_values_top_pos = shap.Explanation(
         values=shap_values.values[:, top_positive_indices],
         base_values=shap_values.base_values,
         data=features.iloc[:, top_positive_indices],
-        feature_names=[features.columns[i] for i in top_positive_indices],)
+        feature_names=[features.columns[i] for i in top_positive_indices],
+    )
 
     positive_plot_path = output_dir / f"top20_positive_shap.png"
     plt.figure(figsize=(12, 10))
-    shap.summary_plot(shap_values_top_pos, features[top_positive_features], max_display=20, show=False)
+    shap.summary_plot(
+        shap_values_top_pos, features[top_positive_features], max_display=20, show=False
+    )
     plt.tight_layout()
     plt.savefig(positive_plot_path, dpi=300)
     plt.close()

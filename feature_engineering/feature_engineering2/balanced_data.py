@@ -43,7 +43,8 @@ def create_balanced_dataset(
     print(f"save to: {out_path}")
 
     final_label_map = (
-        df_balanced.reset_index().groupby("patient_id")["SepsisLabel"].max())
+        df_balanced.reset_index().groupby("patient_id")["SepsisLabel"].max()
+    )
 
     final_positive = (final_label_map == 1).sum()
     final_negative = (final_label_map == 0).sum()
@@ -54,7 +55,8 @@ def create_balanced_dataset(
 
 
 def split_balanced_dataset_maintain_ratio(
-    input_file="after_feature_engineering.parquet"):
+    input_file="after_feature_engineering.parquet",
+):
     root = find_project_root()
     data_path = root / "dataset" / input_file
     df_balanced = pd.read_parquet(data_path)
