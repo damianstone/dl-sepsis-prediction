@@ -85,15 +85,14 @@ def print_validation_metrics(
 
 def compute_masked_loss(outputs, targets, attention_mask, loss_fn):
     # outputs: (seq_len, batch_size)
+    # targets: (seq_len, batch_size)
     outputs = outputs.transpose(0, 1)  # (batch_size, seq_len)
+    targets = targets.transpose(0, 1)  # (batch_size, seq_len)
     valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
-
-    # Expand targets to match sequence length
-    expanded_targets = targets.unsqueeze(1).expand(-1, outputs.size(1))
 
     # Only compute loss on valid timesteps
     masked_outputs = outputs[valid_mask]
-    masked_targets = expanded_targets[valid_mask]
+    masked_targets = targets[valid_mask]
 
     return loss_fn(masked_outputs, masked_targets)
 
@@ -118,9 +117,8 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
             # getting fucking predictions
             valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
             y_preds = (y_probs.transpose(0, 1)[valid_mask] >= threshold).float()
-            y_true = y_batch.unsqueeze(1).expand(-1, y_probs.size(0))[
-                valid_mask
-            ]  # squeeze my dick
+            y_true = y_batch.transpose(0, 1)[valid_mask]
+
             # compute loss
             loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
 
@@ -175,7 +173,7 @@ def training_loop(
             # getting fucking predictions
             valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
             y_preds = (y_probs.transpose(0, 1)[valid_mask] >= threshold).float()
-            y_true = y_batch.unsqueeze(1).expand(-1, y_probs.size(0))[valid_mask]
+            y_true = y_batch.transpose(0, 1)[valid_mask]
 
             # compute loss
             loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
