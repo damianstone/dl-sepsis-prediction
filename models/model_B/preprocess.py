@@ -188,6 +188,8 @@ def scale_dfs(train_df, val_df, test_df, label="SepsisLabel", eps=1e-6):
 def martin_sampling(dataset):
     print("martin sampling")
     print("Dataset before downsampling: ", dataset.shape)
+    # set the index to patient_id
+    dataset = dataset.set_index("patient_id")
     sepsis_groups = dataset.groupby(level="patient_id")["SepsisLabel"].max()
     patients_sepsis = sepsis_groups[sepsis_groups == 1].index
     patients_no_sepsis = sepsis_groups[sepsis_groups == 0].index
@@ -195,6 +197,8 @@ def martin_sampling(dataset):
     sampled_no_sepsis = np.random.choice(patients_no_sepsis, min_size, replace=False)
     dataset = dataset.loc[np.concatenate([patients_sepsis, sampled_no_sepsis])]
     print("Dataset after downsampling: ", dataset.shape)
+    # reset the index without dropping the patient_id column
+    dataset = dataset.reset_index(drop=False)
     return dataset
 
 
