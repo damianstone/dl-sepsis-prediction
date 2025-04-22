@@ -106,14 +106,70 @@ class TransformerTimeSeries(nn.Module):
 
     def __init__(self, input_dim=1, d_model=64, n_heads=2, n_layers=2, dropout=0.1):
         super().__init__()
+        self.input_dim = input_dim
+        self.d_model = d_model
+
+        # Shared modules
         self.embedding = nn.Linear(in_features=input_dim, out_features=d_model)
         self.positional_encoder = PositionalEncoding(d_model, dropout)
         self.encoder_layer = nn.TransformerEncoderLayer(
-            d_model, n_heads, dropout=dropout
+            d_model, n_heads, dropout=dropout, batch_first=False
         )
         self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=n_layers)
-        self.linear_layer = nn.Linear(in_features=d_model, out_features=1)
+
+        # Heads
+        self.linear_layer = nn.Linear(
+            in_features=d_model, out_features=1
+        )  # classification
+        self.reconstruction_head = nn.Linear(
+            in_features=d_model, out_features=input_dim
+        )  # pretraining
+
+        # Pooling for classification
         self.attn_pool = AttentionPooling(d_model)
+
+        # Learnable mask token for masked‑value modelling
+        self.mask_token = nn.Parameter(torch.zeros(input_dim))
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _encode(self, x, mask=None):
+        """Embed + positionally encode + transformer encode.
+
+        Parameters
+        ----------
+        x : Tensor (S, B, F)
+        mask : Bool Tensor (S, B) with True for valid entries.
+        """
+        x = self.embedding(x)
+        x = self.positional_encoder(x)
+
+        enc_mask = None
+        if mask is not None:
+            enc_mask = (~mask.bool()).transpose(0, 1)  # batch, seq_len
+
+        h = self.encoder(x, src_key_padding_mask=enc_mask)
+        return h
+
+    # ------------------------------------------------------------------
+    # Pretraining forward
+    # ------------------------------------------------------------------
+
+    def forward_reconstruction(self, x, mask=None):
+        """Reconstruct original feature values for masked‑value modelling."""
+        # Replace explicit zeros (masked positions) with learnable token
+        token = self.mask_token.view(1, 1, -1)
+        masked_positions = x == 0
+        x = torch.where(masked_positions, token, x)
+
+        h = self._encode(x, mask)
+        return self.reconstruction_head(h)
+
+    # ------------------------------------------------------------------
+    # Classification forward (unchanged external interface)
+    # ------------------------------------------------------------------
 
     def forward(self, x, mask=None):
         orig_mask = mask  # keep True=valid for pooling
