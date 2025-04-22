@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import torch
 from sklearn.metrics import fbeta_score
 from torchmetrics import Accuracy, F1Score, FBetaScore, Precision, Recall
@@ -134,6 +135,8 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
 
     f2_patient = FBetaScore(task="binary", beta=2.0).to(device)
 
+    y_probs_list, y_true_list = [], []
+
     with torch.inference_mode():
         for X_batch, y_batch, attention_mask in val_loader:
             X_batch, y_batch, attention_mask = (
@@ -152,6 +155,9 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
             # compute loss
             loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
             val_loss += loss.item()
+
+            y_probs_list.append(y_probs[valid].cpu())
+            y_true_list.append(y_batch[valid].cpu())
 
             # hour level metrics
             f1_hour.update(y_preds[valid], y_batch[valid])
@@ -176,6 +182,15 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
             # patient_true = y_batch.max(dim=0).values
             # f2_patient.update(patient_pred, patient_true)
 
+    y_probs_all = torch.cat(y_probs_list).numpy()
+    y_true_all = torch.cat(y_true_list).numpy()
+    best_f1, best_thr = 0.0, 0.5
+    for thr in np.linspace(0.01, 0.99, 99):
+        preds = (y_probs_all >= thr).astype(int)
+        f1 = get_f1_score(y_true_all, preds)
+        if f1 > best_f1:
+            best_f1, best_thr = f1, thr
+
     n_batches = len(val_loader)
     val_loss = val_loss / n_batches
     val_acc = acc_hour.compute().item()
@@ -189,7 +204,7 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
         val_loss, val_acc, val_prec, val_rec, val_f1, val_f2, val_f2_patient
     )
 
-    return val_loss, val_f2_patient
+    return val_loss, best_f1, best_thr
 
 
 def training_loop(
@@ -198,7 +213,7 @@ def training_loop(
     epoch_counter, loss_counter, acc_counter = [], [], []
 
     patience = 10
-    best_f2_score = 0
+    best_f1_score = 0
     epochs_without_improvement = 0
     min_epochs = 20
     threshold = 0.5
@@ -269,12 +284,13 @@ def training_loop(
 
         # validation loop + early stopping
         if val_loader is not None:
-            val_loss, val_f2_patient = validation_loop(
+            val_loss, best_f1, best_thr = validation_loop(
                 model, val_loader, loss_fn, device, threshold
             )
+            threshold = best_thr
             if epoch >= min_epochs:
-                if val_f2_patient > best_f2_score:
-                    best_f2_score = val_f2_patient
+                if best_f1 > best_f1_score:
+                    best_f1_score = best_f1
                     epochs_without_improvement = 0
                     save_model(experiment_name, model)
                 else:
@@ -288,7 +304,7 @@ def training_loop(
         "epoch_counter": epoch_counter,
         "loss_counter": loss_counter,
         "acc_counter": acc_counter,
-        "best_f2_score": best_f2_score,
+        "best_f2_score": best_f1_score,
         "model": model,
     }
     return res
