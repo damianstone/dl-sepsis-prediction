@@ -3,7 +3,7 @@ xperiment:
   model: "time_series"
 
 data:
-  data_file_name: "dsv4"
+  data_file_name: "dsv4_undersampled"
   use_last_processed_data: false
   sampling: false
   sampling_method: oversample
