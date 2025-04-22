@@ -154,7 +154,7 @@ def training_loop(
     patience = 10  # if the validation doesn't improve after K (patience) checks
     best_f2_score = 0
     epochs_without_improvement = 0
-    min_epochs = 50
+    min_epochs = 10
     threshold = 0.5
 
     for epoch in range(epochs):
