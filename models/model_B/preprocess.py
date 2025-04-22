@@ -2,6 +2,7 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from model_utils.helper_functions import display_balance_statistics
 from sklearn.model_selection import train_test_split
@@ -184,6 +185,19 @@ def scale_dfs(train_df, val_df, test_df, label="SepsisLabel", eps=1e-6):
     return train_scaled, val_scaled, test_scaled
 
 
+def martin_sampling(dataset):
+    print("martin sampling")
+    print("Dataset before downsampling: ", dataset.shape)
+    sepsis_groups = dataset.groupby(level="patient_id")["SepsisLabel"].max()
+    patients_sepsis = sepsis_groups[sepsis_groups == 1].index
+    patients_no_sepsis = sepsis_groups[sepsis_groups == 0].index
+    min_size = len(patients_sepsis)
+    sampled_no_sepsis = np.random.choice(patients_no_sepsis, min_size, replace=False)
+    dataset = dataset.loc[np.concatenate([patients_sepsis, sampled_no_sepsis])]
+    print("Dataset after downsampling: ", dataset.shape)
+    return dataset
+
+
 def preprocess_data(
     data_file_name,
     sampling=True,
@@ -244,9 +258,14 @@ def preprocess_data(
 
     # Then balance both sets separately to ensure exact same balance
     if sampling:
-        train_df = over_under_sample(
-            df=train_df, method=sampling_method, minority_ratio=sampling_minority_ratio
-        )
+        if sampling_method == "martin":
+            train_df = martin_sampling(train_df)
+        else:
+            train_df = over_under_sample(
+                df=train_df,
+                method=sampling_method,
+                minority_ratio=sampling_minority_ratio,
+            )
 
     train_df, val_df, test_df = scale_dfs(
         train_df, val_df, test_df, label="SepsisLabel"
