@@ -3,9 +3,9 @@ xperiment:
   model: "time_series"
 
 data:
-  data_file_name: "V2_preprocessed"
+  data_file_name: "martin_ds_downsampled"
   use_last_processed_data: false
-  sampling: true
+  sampling: false
   sampling_method: undersample
   sampling_minority_ratio: 0.3
   train_sample_fraction: 0.5
