@@ -246,7 +246,7 @@ def training_loop(
             # Forward pass
             y_logits = model(X_batch, mask=attention_mask)
             y_probs = torch.sigmoid(y_logits)
-            y_preds = (y_probs >= threshold).float()
+            y_preds = (y_probs >= 0.5).float()
             valid = ~attention_mask
 
             # compute loss
