@@ -22,7 +22,7 @@ training:
   batch_size: 256
   use_post_weight: true
   max_post_weight: 5
-  lr: 0.001
+  lr: 0.00001
   epochs: 1000
 
 testing:
@@ -30,6 +30,6 @@ testing:
 
 pretrain:
   enabled: true
-  epochs: 20
-  batch_size: 128
+  epochs: 100
+  batch_size: 256
   mask_ratio: 0.15
