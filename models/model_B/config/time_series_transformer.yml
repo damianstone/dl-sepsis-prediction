@@ -1,9 +1,9 @@
 xperiment:
-  name: "24_undersampled_5050_dsv4_mf_128_4_2"
+  name: "25_undersampled_5050_V2_preprocessed_128_4_2"
   model: "time_series"
 
 data:
-  data_file_name: "dsv4"
+  data_file_name: "V2_preprocessed"
   use_last_processed_data: false
   sampling: true
   sampling_method: undersample
