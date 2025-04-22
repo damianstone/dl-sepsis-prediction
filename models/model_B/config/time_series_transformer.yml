@@ -1,5 +1,5 @@
 xperiment:
-  name: "25_undersampled_5050_V2_preprocessed_128_4_2"
+  name: "26_undersampled_5050_V2_preprocessed_128_4_2_slow_lr"
   model: "time_series"
 
 data:
@@ -22,7 +22,7 @@ training:
   batch_size: 256
   use_post_weight: true
   max_post_weight: 5
-  lr: 0.001
+  lr: 0.0001
   epochs: 1000
 
 testing:
