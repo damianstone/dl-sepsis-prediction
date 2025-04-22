@@ -66,18 +66,14 @@ def print_imbalance_ratio(y, patient_ids, dataset_name):
     print("-" * 50)
 
 
-def get_pos_weight(ids, y, max_weight=5, device=torch.device("cpu")):
-    train_df = pd.DataFrame({"patient_id": ids, "SepsisLabel": y})
-    patient_summary = train_df.groupby("patient_id")["SepsisLabel"].max().reset_index()
-    negative_count = (patient_summary["SepsisLabel"] == 0).sum()
-    positive_count = (patient_summary["SepsisLabel"] == 1).sum()
-
-    if positive_count == 0:
-        raise ValueError("No positive samples found in training set.")
-
-    weight = round(negative_count / positive_count, 2)
-    p_w = min(weight, max_weight)
-    return weight, torch.tensor([p_w], dtype=torch.float32, device=device)
+def get_pos_weight_hour(flat_labels, max_weight=5, device="cpu"):
+    pos = flat_labels.sum().item()
+    neg = flat_labels.numel() - pos
+    if pos == 0:
+        raise ValueError("No positive hours found.")
+    w = min(neg / pos, max_weight)
+    print(f"POST WEIGHT: {w}")
+    return w, torch.tensor([w], dtype=torch.float32, device=device)
 
 
 def data_plots_and_metrics(
@@ -209,7 +205,6 @@ def full_pipeline():
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        drop_last=True,
     )
     val_dataset = SepsisPatientDataset(
         X_val.values,
@@ -222,7 +217,6 @@ def full_pipeline():
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        drop_last=True,
     )
 
     # -------------------------------- MODEL --------------------------------
@@ -239,9 +233,14 @@ def full_pipeline():
     # NOTE: get pos_weight to balance the loss for imbalanced classes
     if config["training"]["use_post_weight"]:
         max_p = config["training"]["max_post_weight"]
-        weight, pos_weight = get_pos_weight(
-            patient_ids_train, y_train.values, max_p, device
-        )
+
+        all_labels = []
+        for _, y, mask in train_loader:
+            all_labels.append(y[~mask].view(-1))
+        flat_labels = torch.cat(all_labels).to(device)
+
+        weight, pos_weight = get_pos_weight_hour(flat_labels, max_p, device)
+
         config["training"]["weight"] = float(weight)
         config["training"]["post_weight"] = float(pos_weight)
         loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)

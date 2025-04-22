@@ -1,7 +1,8 @@
 from pathlib import Path
 
 import torch
-from sklearn.metrics import accuracy_score, fbeta_score, precision_score, recall_score
+from sklearn.metrics import fbeta_score
+from torchmetrics import Accuracy, F1Score, FBetaScore, Precision, Recall
 from tqdm import tqdm
 
 
@@ -69,7 +70,7 @@ def delete_model(xperiment_name):
 
 
 def print_validation_metrics(
-    val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true
+    val_loss, val_acc, val_prec, val_rec, val_f1, val_f2, val_f2_patient
 ):
     print("\nValidation Metrics:")
     print(f"{'='*40}")
@@ -77,32 +78,47 @@ def print_validation_metrics(
     print(f"Accuracy:   {val_acc*100:.2f}%")
     print(f"Precision:  {val_prec*100:.2f}%")
     print(f"Recall:     {val_rec*100:.2f}%")
-    val_f1 = get_f1_score(full_y_pred, full_y_true)
-    val_f2 = get_f2_score(full_y_pred, full_y_true)
     print(f"F1-Score:   {val_f1*100:.2f}%")
     print(f"F2-Score:   {val_f2*100:.2f}%")
+    print(f"F2-PATIENTE Score:   {val_f2_patient*100:.2f}%")
+
+
+def print_training_metrics(
+    phase: str,
+    epoch: int,
+    epochs: int,
+    loss: float,
+    acc: float,
+    prec: float,
+    rec: float,
+    f1: float,
+    f2: float,
+):
+    print(
+        f"[{phase:<5}] Epoch {epoch:>3}/{epochs:<3} | "
+        f"loss {loss:.4f} | "
+        f"acc {acc*100:5.1f} | "
+        f"prec {prec*100:5.1f} | "
+        f"rec {rec*100:5.1f} | "
+        f"F1 {f1*100:5.1f} | "
+        f"F2 {f2*100:5.1f}"
+    )
+
+
+def get_earliest_hour(probs_masked, patient_pred, threshold):
+    cross = (probs_masked >= threshold).float()
+    onset = cross.argmax(dim=0)
+    onset[patient_pred == 0] = -1
+    return onset
 
 
 def compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn):
-    """
-    at every hour, predict whether this patient ever gets sepsis
-    doesn't not learn when exactly the patient gets sepsis
-
-    every (hour, patient) position receives its own gradient, so the network updates weights from each timestep
-    """
     # y_logits = (seq len, batch size)
-    # y_batch = (batch size, ) -> one label per patient
+    # y_batch = (seq len, batch size)
     # valid_mask = (seq len, batch size) -> true for valid positions
-
-    expanded_targets = y_batch.unsqueeze(0)  # (1, batch size)
-    # (seq len, batch size)
-    expanded_targets = expanded_targets.expand(y_logits.size(0), y_logits.size(1))
-    # padded positions = True (seq len, batch size)
-    valid_mask = ~attention_mask  # make valid positions to be = True
-
+    valid_mask = ~attention_mask
     masked_outputs = y_logits[valid_mask]
-    masked_targets = expanded_targets[valid_mask]
-
+    masked_targets = y_batch[valid_mask]
     return loss_fn(masked_outputs, masked_targets)
 
 
@@ -110,8 +126,15 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
     model.eval()
     val_loss = 0.0
 
-    full_y_pred, full_y_true = [], []
-    with torch.no_grad():
+    f1_hour = F1Score(task="binary").to(device)
+    f2_hour = FBetaScore(task="binary", beta=2.0).to(device)
+    prec_hour = Precision(task="binary").to(device)
+    rec_hour = Recall(task="binary").to(device)
+    acc_hour = Accuracy(task="binary").to(device)
+
+    f2_patient = FBetaScore(task="binary", beta=2.0).to(device)
+
+    with torch.inference_mode():
         for X_batch, y_batch, attention_mask in val_loader:
             X_batch, y_batch, attention_mask = (
                 X_batch.to(device),
@@ -121,35 +144,52 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
 
             # Forward pass
             y_logits = model(X_batch, mask=attention_mask)
-
-            # NOTE: max pooling for final prediction at patient level
-            valid = ~attention_mask  # true for non padded values
-            # push padded positions to −∞  (never chosen by max)
-            masked_logits = y_logits.masked_fill(valid, -1e9)
-            patient_level_logits, _ = masked_logits.max(dim=0)  # (batch size)
-            patient_level_probs = torch.sigmoid(patient_level_logits)
-            patient_level_preds = (patient_level_probs >= threshold).float()
+            y_probs = torch.sigmoid(y_logits)
+            y_preds = (y_probs >= threshold).float()
+            # make padded values = False
+            valid = ~attention_mask
 
             # compute loss
             loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
-
-            full_y_pred.append(patient_level_preds.cpu())
-            full_y_true.append(y_batch.cpu())
-
             val_loss += loss.item()
+
+            # hour level metrics
+            f1_hour.update(y_preds[valid], y_batch[valid])
+            f2_hour.update(y_preds[valid], y_batch[valid])
+            prec_hour.update(y_preds[valid], y_batch[valid])
+            rec_hour.update(y_preds[valid], y_batch[valid])
+            acc_hour.update(y_preds[valid], y_batch[valid])
+
+            # NOTE: patient level metrics
+            # any positive hour then patient with sepsis
+            patient_pred = y_preds.masked_fill(attention_mask, 0).any(dim=0).float()
+            patient_true = y_batch.masked_fill(attention_mask, 0).any(dim=0).float()
+            f2_patient.update(patient_pred, patient_true)
+            # # padding values = 0
+            # # push padded logits to −∞ so they never win the max
+            # masked_logits = y_logits.masked_fill(attention_mask, -1e9)
+            # # max‑pool over time axis → one logit per patient
+            # patient_logits = masked_logits.max(dim=0).values
+            # patient_prob = torch.sigmoid(patient_logits)
+            # patient_pred = (patient_prob >= threshold).float()
+            # # ground‑truth per patient: 1 if any hour label == 1
+            # patient_true = y_batch.max(dim=0).values
+            # f2_patient.update(patient_pred, patient_true)
 
     n_batches = len(val_loader)
     val_loss = val_loss / n_batches
+    val_acc = acc_hour.compute().item()
+    val_prec = prec_hour.compute().item()
+    val_rec = rec_hour.compute().item()
+    val_f1 = f1_hour.compute().item()
+    val_f2 = f2_hour.compute().item()
+    val_f2_patient = f2_patient.compute().item()
 
-    # Concatenate tensors and convert to numpy arrays
-    full_y_pred = torch.cat(full_y_pred).numpy()
-    full_y_true = torch.cat(full_y_true).numpy()
-    # Compute metrics on the full validation set
-    val_acc = accuracy_score(full_y_true, full_y_pred)
-    val_prec = precision_score(full_y_true, full_y_pred, zero_division=0)
-    val_rec = recall_score(full_y_true, full_y_pred, zero_division=0)
-    f2_score = get_f2_score(full_y_pred, full_y_true)
-    return val_loss, val_acc, val_prec, val_rec, f2_score, full_y_pred, full_y_true
+    print_validation_metrics(
+        val_loss, val_acc, val_prec, val_rec, val_f1, val_f2, val_f2_patient
+    )
+
+    return val_loss, val_f2_patient
 
 
 def training_loop(
@@ -163,11 +203,19 @@ def training_loop(
     min_epochs = 20
     threshold = 0.5
 
+    acc_hour = Accuracy(task="binary").to(device)
+    prec_hour = Precision(task="binary").to(device)
+    rec_hour = Recall(task="binary").to(device)
+    f1_hour = F1Score(task="binary").to(device)
+    f2_hour = FBetaScore(task="binary", beta=2.0).to(device)
+
     for epoch in range(epochs):
         model.train()
         epoch_loss = 0.0
-        epoch_y_pred, epoch_y_true = [], []
-        batch_count = 0
+
+        for m in (acc_hour, prec_hour, rec_hour, f1_hour, f2_hour):
+            m.reset()
+
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False)
 
         for X_batch, y_batch, attention_mask in train_loader:
@@ -182,14 +230,9 @@ def training_loop(
 
             # Forward pass
             y_logits = model(X_batch, mask=attention_mask)
-
-            # NOTE: max pooling for final prediction at patient level
+            y_probs = torch.sigmoid(y_logits)
+            y_preds = (y_probs >= threshold).float()
             valid = ~attention_mask
-            # push padded positions to −∞  (never chosen by max)
-            masked_logits = y_logits.masked_fill(valid, -1e9)
-            patient_level_logits, _ = masked_logits.max(dim=0)
-            patient_level_probs = torch.sigmoid(patient_level_logits)
-            patient_level_preds = (patient_level_probs >= threshold).float()
 
             # compute loss
             loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
@@ -199,38 +242,39 @@ def training_loop(
             loss.backward()
             optimizer.step()
 
-            batch_count += 1
+            acc_hour.update(y_preds[valid], y_batch[valid])
+            prec_hour.update(y_preds[valid], y_batch[valid])
+            rec_hour.update(y_preds[valid], y_batch[valid])
+            f1_hour.update(y_preds[valid], y_batch[valid])
+            f2_hour.update(y_preds[valid], y_batch[valid])
+
             epoch_loss += loss.item()
-
-            epoch_y_pred.append(patient_level_preds.cpu())
-            epoch_y_true.append(y_batch.cpu())
-
             progress_bar.set_postfix({"Loss": loss.item()})
 
         epoch_loss /= len(train_loader)
-        epoch_y_pred = torch.cat(epoch_y_pred).numpy()
-        epoch_y_true = torch.cat(epoch_y_true).numpy()
-        epoch_acc = accuracy_score(epoch_y_true, epoch_y_pred)
-        epoch_prec = precision_score(epoch_y_true, epoch_y_pred, zero_division=0)
-        epoch_rec = recall_score(epoch_y_true, epoch_y_pred, zero_division=0)
+        acc_h = acc_hour.compute().item()
+        prec_h = prec_hour.compute().item()
+        rec_h = rec_hour.compute().item()
+        f1_h = f1_hour.compute().item()
+        f2_hour.compute().item()
+
+        # store for future plots
         epoch_counter.append(epoch + 1)
         loss_counter.append(epoch_loss)
-        acc_counter.append(epoch_acc)
+        acc_counter.append(acc_h)
 
         print(
-            f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc*100:.2f}% | Precision: {epoch_prec*100:.2f}% | Recall: {epoch_rec*100:.2f}%"
+            f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | F1: {f1_h*100:.2f}% | Accuracy: {acc_h*100:.2f}% | Precision: {prec_h*100:.2f}% | Recall: {rec_h*100:.2f}%"
         )
 
-        if val_loader is not None and epoch % 1 == 0:
-            val_loss, val_acc, val_prec, val_rec, f2_score, full_y_pred, full_y_true = (
-                validation_loop(model, val_loader, loss_fn, device, threshold)
-            )
-            print_validation_metrics(
-                val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true
+        # validation loop + early stopping
+        if val_loader is not None:
+            val_loss, val_f2_patient = validation_loop(
+                model, val_loader, loss_fn, device, threshold
             )
             if epoch >= min_epochs:
-                if f2_score > best_f2_score:
-                    best_f2_score = f2_score
+                if val_f2_patient > best_f2_score:
+                    best_f2_score = val_f2_patient
                     epochs_without_improvement = 0
                     save_model(experiment_name, model)
                 else:

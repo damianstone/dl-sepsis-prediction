@@ -64,31 +64,34 @@ class SepsisPatientDataset(Dataset):
         )
         y = torch.tensor([record[1] for record in patient_records], dtype=torch.float32)
 
-        return X, y.max()
+        return X, y
 
 
 def collate_fn(batch):
-    # all the sequences
-    X_batch = [x for x, y in batch]
-    # all the labels in one tensor for each group of sequences -> so a group of sequences have the same label
-    y_batch = torch.stack([y for _, y in batch])
+    Xs, ys = zip(*batch)
 
-    # find the max sequence length between all the time steps (the patient with more records)
-    max_len = max([x.shape[0] for x in X_batch])
-    feature_dim = X_batch[0].shape[1]
+    # max sequence length
+    S = max(x.shape[0] for x in Xs)
+    # feature dimension
+    F = Xs[0].shape[1]
+    # batch size
+    B = len(Xs)
 
     # (seq length, batch size, feature dim)
-    padded_X = torch.zeros(max_len, len(X_batch), feature_dim)
+    padded_X = torch.zeros(S, B, F)
     # (seq length, batch size)
-    attention_mask = torch.zeros(max_len, len(X_batch))
+    padded_y = torch.zeros(S, B)
+    # (seq length, batch size)
+    attention_mask = torch.zeros(S, B)
 
-    for patient_id, patient_records in enumerate(X_batch):
-        seq_len = patient_records.shape[0]
-        padded_X[:seq_len, patient_id, :] = patient_records
-        attention_mask[:seq_len, patient_id] = 0  # valid data positions = 0
-        attention_mask[seq_len:, patient_id] = 1  # padding positions = 1 = True
+    for b, (x, y) in enumerate(zip(Xs, ys)):
+        L = x.shape[0]
+        padded_X[:L, b] = x
+        padded_y[:L, b] = y
+        attention_mask[:L, b] = 0  # valid data positions = 0
+        attention_mask[L:, b] = 1  # padding positions = 1 = True
 
-    return padded_X, y_batch, attention_mask.bool()
+    return padded_X, padded_y, attention_mask.bool()
 
 
 """

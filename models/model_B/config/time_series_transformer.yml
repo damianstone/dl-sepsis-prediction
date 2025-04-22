@@ -13,17 +13,17 @@ data:
   random_state: 42
 
 model:
-  d_model: 64
+  d_model: 128
   num_heads: 2
-  num_layers: 1
+  num_layers: 2
   drop_out: 0.2
 
 training:
-  batch_size: 64
+  batch_size: 128
   use_post_weight: true
-  max_post_weight: 5
+  max_post_weight: 50
   lr: 0.001
   epochs: 1000
 
 testing:
-  batch_size: 64
+  batch_size: 128
