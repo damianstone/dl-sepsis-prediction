@@ -148,6 +148,7 @@ def training_loop(
     # set up LR scheduler: 10% of total steps as warmup
     warmup_epochs = 10
     warmup_steps = int(warmup_epochs * len(train_loader))
+    total_steps = epochs * len(train_loader)
     scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
 
     patience = 10  # if the validation doesn't improve after K (patience) checks
