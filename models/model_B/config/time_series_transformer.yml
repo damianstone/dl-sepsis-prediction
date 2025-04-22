@@ -1,9 +1,9 @@
 xperiment:
-  name: "14_undersampled_V3_mf_128_4_2"
+  name: "15_undersampled_V35_mf_128_4_2"
   model: "time_series"
 
 data:
-  data_file_name: "V3_preprocessed"
+  data_file_name: "V35_preprocessed"
   use_last_processed_data: false
   sampling: true
   sampling_method: undersample
