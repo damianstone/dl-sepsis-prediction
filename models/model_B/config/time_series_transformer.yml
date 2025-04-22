@@ -1,5 +1,5 @@
 xperiment:
-  name: "19_our_undersampled_5050_dsv4_mf_64_4_2"
+  name: "20_our_undersampled_5050_dsv4_mf_128_4_2"
   model: "time_series"
 
 data:
