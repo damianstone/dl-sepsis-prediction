@@ -1,13 +1,13 @@
 xperiment:
-  name: "18_mtundersampled_dsv4_mf_64_4_2"
+  name: "19_our_undersampled_5050_dsv4_mf_64_4_2"
   model: "time_series"
 
 data:
-  data_file_name: "dsv4_undersampled"
+  data_file_name: "dsv4"
   use_last_processed_data: false
-  sampling: false
-  sampling_method: oversample
-  sampling_minority_ratio: 0.3
+  sampling: true
+  sampling_method: undersample
+  sampling_minority_ratio: 0.5
   train_sample_fraction: 1
   test_size: 0.2
   random_state: 42
