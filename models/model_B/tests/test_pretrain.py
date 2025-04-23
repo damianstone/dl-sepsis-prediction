@@ -13,7 +13,7 @@ import torch
 
 from models.model_B.architectures import TransformerTimeSeries
 from models.model_B.custom_dataset import SepsisPatientDataset
-from models.model_B.pretrain import load_pretrained_encoder, train_masked_model
+from models.model_B.pretrain import load_pretrained_encoder, masked_pretrain
 
 
 def _create_dummy_dataset(num_patients: int = 8, feat_dim: int = 7):
@@ -40,7 +40,7 @@ def test_pretrain_and_load(tmp_path: Path):
     ckpt_path = tmp_path / "encoder.pth"
 
     # Pre‑train for 1 epoch with very small model to keep CI fast
-    saved = train_masked_model(
+    saved = masked_pretrain(
         dataset=dataset,
         input_dim=7,
         d_model=16,

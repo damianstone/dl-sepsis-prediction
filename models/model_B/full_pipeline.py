@@ -11,7 +11,7 @@ from model_utils.helper_functions import save_xperiment_csv, save_xperiment_yaml
 from model_utils.metrics import save_metrics
 from model_utils.plots import save_plots
 from preprocess import preprocess_data
-from pretrain import load_pretrained_encoder, train_masked_model
+from pretrain import masked_pretrain
 from testing import testing_loop
 from torch import nn
 from torch.utils.data import DataLoader
@@ -152,10 +152,6 @@ def get_model(model_to_use, config, in_dim, device):
             dropout=config["model"]["drop_out"],
         ).to(device)
 
-        # Optionally load a pretrained encoder
-        pretrained_path = config["model"].get("pretrained_encoder")
-        if pretrained_path:
-            load_pretrained_encoder(model, pretrained_path)
     else:
         model = TransformerClassifier(
             input_dim=in_dim,
@@ -243,7 +239,7 @@ def full_pipeline():
             print(f"Using existing pretrained encoder at {ckpt_existing}")
         else:
             print("Starting self‑supervised masked‑value pre‑training…")
-            ckpt_path = train_masked_model(
+            ckpt_path = masked_pretrain(
                 dataset=train_dataset,
                 input_dim=X_train.shape[1],
                 d_model=pre_cfg.get("d_model", config["model"]["d_model"]),

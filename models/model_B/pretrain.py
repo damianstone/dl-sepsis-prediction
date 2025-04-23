@@ -105,14 +105,10 @@ def collate_fn_masked(
 # -----------------------------------------------------------------------------
 
 
-def train_masked_model(
+def masked_pretrain(
+    model: TransformerTimeSeries,
     dataset: SepsisPatientDataset,
-    val_dataset: SepsisPatientDataset | None = None,
-    input_dim: int = 107,
-    d_model: int = 64,
-    n_heads: int = 2,
-    n_layers: int = 2,
-    dropout: float = 0.1,
+    val_dataset: SepsisPatientDataset,
     batch_size: int = 256,
     epochs: int = 10,
     lr: float = 1e-4,
@@ -130,13 +126,7 @@ def train_masked_model(
     """
     device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
-    model = TransformerTimeSeries(
-        input_dim=input_dim,
-        d_model=d_model,
-        n_heads=n_heads,
-        n_layers=n_layers,
-        dropout=dropout,
-    ).to(device)
+    model = model.to(device)
 
     dataloader = DataLoader(
         dataset,
@@ -146,15 +136,13 @@ def train_masked_model(
         drop_last=True,
     )
 
-    val_loader = None
-    if val_dataset is not None:
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            collate_fn=lambda batch: collate_fn_masked(batch, mask_ratio=mask_ratio),
-            drop_last=False,
-        )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=lambda batch: collate_fn_masked(batch, mask_ratio=mask_ratio),
+        drop_last=False,
+    )
 
     optim = torch.optim.AdamW(model.parameters(), lr=lr)
 
@@ -192,37 +180,33 @@ def train_masked_model(
         epoch_loss = total_loss / max(total_masks, 1)
 
         # ---------------- Validation ----------------
-        if val_loader is not None:
-            model.eval()
-            val_total, val_count = 0.0, 0
-            with torch.no_grad():
-                for v_X, v_mask, v_valmask, v_target in val_loader:
-                    v_X, v_mask, v_valmask, v_target = (
-                        v_X.to(device),
-                        v_mask.to(device),
-                        v_valmask.to(device),
-                        v_target.to(device),
-                    )
-                    v_pred = model.forward_reconstruction(v_X, v_mask)
-                    v_sq = (v_pred - v_target) ** 2
-                    v_loss = v_sq.masked_select(v_valmask).mean()
-                    val_total += v_loss.item()
-                    val_count += 1
-            val_loss = val_total / max(val_count, 1)
-            print(
-                f"Epoch {epoch+1}: train MSE {epoch_loss:.6f} | val MSE {val_loss:.6f}"
-            )
 
-            if val_loss < best_val_loss - 1e-4:
-                best_val_loss = val_loss
-                epochs_no_improve = 0
-            else:
-                epochs_no_improve += 1
-                if epochs_no_improve >= patience:
-                    print("Early stopping triggered (no val loss improvement).")
-                    break
+        model.eval()
+        val_total, val_count = 0.0, 0
+        with torch.no_grad():
+            for v_X, v_mask, v_valmask, v_target in val_loader:
+                v_X, v_mask, v_valmask, v_target = (
+                    v_X.to(device),
+                    v_mask.to(device),
+                    v_valmask.to(device),
+                    v_target.to(device),
+                )
+                v_pred = model.forward_reconstruction(v_X, v_mask)
+                v_sq = (v_pred - v_target) ** 2
+                v_loss = v_sq.masked_select(v_valmask).mean()
+                val_total += v_loss.item()
+                val_count += 1
+        val_loss = val_total / max(val_count, 1)
+        print(f"Epoch {epoch+1}: train MSE {epoch_loss:.6f} | val MSE {val_loss:.6f}")
+
+        if val_loss < best_val_loss - 1e-4:
+            best_val_loss = val_loss
+            epochs_no_improve = 0
         else:
-            print(f"Epoch {epoch+1}: avg masked MSE {epoch_loss:.6f}")
+            epochs_no_improve += 1
+            if epochs_no_improve >= patience:
+                print("Early stopping triggered (no val loss improvement).")
+                break
 
     # ------------------------------------------------------------------
     # Save encoder state_dict (without recon head to keep size small)
@@ -301,7 +285,7 @@ if __name__ == "__main__":
         time_index=0,  # dummy
     )
 
-    train_masked_model(
+    masked_pretrain(
         dataset=dataset,
         input_dim=5,
         d_model=32,
