@@ -171,7 +171,7 @@ def training_loop(
     total_steps = epochs * len(train_loader)
     scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
 
-    patience = 10  # if the validation doesn't improve after K (patience) checks
+    patience = 15  # if the validation doesn't improve after K (patience) checks
     best_f2_score = 0
     epochs_without_improvement = 0
     min_epochs = 10
