@@ -1,5 +1,5 @@
 xperiment:
-  name: "27_undersampled_3070_V2_preprocessed_128_4_2"
+  name: "28_undersampled_3070_V2_pretrained_128_4_2"
   model: "time_series"
 
 data:
@@ -22,8 +22,14 @@ training:
   batch_size: 256
   use_post_weight: true
   max_post_weight: 5
-  lr: 0.001
+  lr: 0.00001
   epochs: 1000
 
 testing:
   batch_size: 256
+
+pretrain:
+  enabled: true
+  epochs: 100
+  batch_size: 256
+  mask_ratio: 0.15

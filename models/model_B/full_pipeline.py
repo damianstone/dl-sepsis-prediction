@@ -11,10 +11,13 @@ from model_utils.helper_functions import save_xperiment_csv, save_xperiment_yaml
 from model_utils.metrics import save_metrics
 from model_utils.plots import save_plots
 from preprocess import preprocess_data
+from pretrain import load_pretrained_encoder, train_masked_model
 from testing import testing_loop
 from torch import nn
 from torch.utils.data import DataLoader
 from training import training_loop
+
+# Pretraining utilities
 
 
 def find_project_root(marker=".gitignore"):
@@ -148,6 +151,11 @@ def get_model(model_to_use, config, in_dim, device):
             n_layers=config["model"]["num_layers"],
             dropout=config["model"]["drop_out"],
         ).to(device)
+
+        # Optionally load a pretrained encoder
+        pretrained_path = config["model"].get("pretrained_encoder")
+        if pretrained_path:
+            load_pretrained_encoder(model, pretrained_path)
     else:
         model = TransformerClassifier(
             input_dim=in_dim,
@@ -210,7 +218,7 @@ def full_pipeline():
         shuffle=True,
         collate_fn=collate_fn,
         drop_last=True,
-        num_workers=12,
+        num_workers=4,
     )
     val_dataset = SepsisPatientDataset(
         X_val.values,
@@ -224,8 +232,32 @@ def full_pipeline():
         shuffle=True,
         collate_fn=collate_fn,
         drop_last=True,
-        num_workers=12,
+        num_workers=4,
     )
+
+    # -------------------------------- OPTIONAL SELF‑SUPERVISED PRE‑TRAIN --------------------------------
+    pre_cfg = config.get("pretrain", {})
+    if pre_cfg.get("enabled", False):
+        ckpt_existing = config["model"].get("pretrained_encoder")
+        if ckpt_existing and not pre_cfg.get("overwrite", False):
+            print(f"Using existing pretrained encoder at {ckpt_existing}")
+        else:
+            print("Starting self‑supervised masked‑value pre‑training…")
+            ckpt_path = train_masked_model(
+                dataset=train_dataset,
+                input_dim=X_train.shape[1],
+                d_model=pre_cfg.get("d_model", config["model"]["d_model"]),
+                n_heads=pre_cfg.get("n_heads", config["model"]["num_heads"]),
+                n_layers=pre_cfg.get("n_layers", config["model"]["num_layers"]),
+                dropout=config["model"]["drop_out"],
+                batch_size=pre_cfg.get("batch_size", 256),
+                epochs=pre_cfg.get("epochs", 10),
+                mask_ratio=pre_cfg.get("mask_ratio", 0.15),
+                device=device,
+                save_path=pre_cfg.get("save_path"),
+                val_dataset=val_dataset,
+            )
+            config["model"]["pretrained_encoder"] = str(ckpt_path)
 
     # -------------------------------- MODEL --------------------------------
     in_dim = X_train.shape[1]
