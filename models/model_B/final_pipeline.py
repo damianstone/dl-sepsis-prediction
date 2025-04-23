@@ -19,14 +19,13 @@ import sys
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from custom_dataset import SepsisPatientDataset, collate_fn
 from full_pipeline import data_plots_and_metrics, get_model, get_pos_weight
+from pretrain import load_pretrained_encoder, masked_pretrain
 from testing import testing_loop
 from torch import nn
 from torch.utils.data import DataLoader
 from training import (
-    delete_model,
     get_f1_score,
     get_f2_score,
     save_model,
@@ -58,63 +57,6 @@ RANDOM_STATE = 42
 # ============================================================================
 
 
-# Added FocalLoss Class
-class FocalLoss(nn.Module):
-    """
-    Focal Loss for Binary Classification.
-    Based on https://github.com/facebookresearch/fvcore/blob/main/fvcore/nn/focal_loss.py
-
-    Args:
-        alpha (float): Weighting factor for the rare class (e.g., positive class).
-                       Set to -1 to disable. Defaults to 0.25.
-        gamma (float): Focusing parameter. Higher values down-weight easy examples.
-                       Defaults to 2.0.
-        reduction (str): Specifies the reduction to apply to the output:
-                         'none' | 'mean' | 'sum'. 'mean': sum over batch / batch size.
-                         'sum': sum over batch. Defaults to 'mean'.
-        logits (bool): If True, input is expected to be logits (before sigmoid).
-                       If False, input is expected to be probabilities (after sigmoid).
-                       Defaults to True.
-    """
-
-    def __init__(self, alpha=0.25, gamma=2.0, reduction="mean", logits=True):
-        super().__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-        self.logits = logits
-
-    def forward(self, inputs, targets):
-        targets = targets.float()  # Ensure targets are float
-        if self.logits:
-            bce_loss = F.binary_cross_entropy_with_logits(
-                inputs, targets, reduction="none"
-            )
-            p = torch.sigmoid(inputs)
-        else:
-            bce_loss = F.binary_cross_entropy(inputs, targets, reduction="none")
-            p = inputs
-
-        # Calculate p_t
-        p_t = p * targets + (1 - p) * (1 - targets)
-
-        # Calculate focal loss factor
-        loss = bce_loss * ((1 - p_t) ** self.gamma)
-
-        # Apply alpha weighting
-        if self.alpha >= 0:
-            alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
-            loss = alpha_t * loss
-
-        # Apply reduction
-        if self.reduction == "mean":
-            loss = loss.mean()
-        elif self.reduction == "sum":
-            loss = loss.sum()
-
-        return loss
-
-
 def set_seeds(seed: int = RANDOM_STATE):
     random.seed(seed)
     np.random.seed(seed)
@@ -129,29 +71,74 @@ def set_seeds(seed: int = RANDOM_STATE):
         pass
 
 
-def setup_base_config():
+def setup_base_config(name, dataset_type):
     """Set up the base configuration for experiments including model name, training, and testing parameters."""
     return {
         "xperiment": {
-            "name": "time_series_transformer_grid_search",
+            "name": name,
             "model": "time_series",
         },
+        "dataset_type": dataset_type,
         "training": {
             "batch_size": 256,
-            "loss_type": "focal",  # Can be 'bce' or 'focal'
-            "use_post_weight": True,  # Only used if loss_type is 'bce'
-            "max_post_weight": 5,  # Only used if loss_type is 'bce'
-            "focal_alpha": 0.25,  # Only used if loss_type is 'focal'
-            "focal_gamma": 2.0,  # Only used if loss_type is 'focal'
-            "lr": 0.0001,
+            "use_post_weight": True,
+            "max_post_weight": 5,
+            "lr": 0.00001,
             "epochs": 1000,
-            "weight_decay": 0.02,
         },
         "testing": {
             "batch_size": 256,
-            "threshold": 0.5,
+        },
+        "pretrain": {
+            "enabled": True,
+            "epochs": 1000,
+            "batch_size": 256,
+            "mask_ratio": 0.15,
+            "save_path": f"{project_root}/models/model_B/saved/pretrained_encoder_{name}_{dataset_type}.pth",
         },
     }
+
+
+def get_small_model_config(dataset_type):
+    config = setup_base_config(
+        name=f"small_model_{dataset_type}", dataset_type=dataset_type
+    )
+
+    config["model"] = {
+        "d_model": 64,
+        "num_heads": 2,
+        "num_layers": 1,
+        "drop_out": 0.1,
+    }
+    return config
+
+
+def get_medium_model_config(dataset_type):
+    config = setup_base_config(
+        name=f"medium_model_{dataset_type}", dataset_type=dataset_type
+    )
+
+    config["model"] = {
+        "d_model": 128,
+        "num_heads": 4,
+        "num_layers": 2,
+        "drop_out": 0.2,
+    }
+    return config
+
+
+def get_large_model_config(dataset_type):
+    config = setup_base_config(
+        name=f"large_model_{dataset_type}", dataset_type=dataset_type
+    )
+
+    config["model"] = {
+        "d_model": 256,
+        "num_heads": 8,
+        "num_layers": 4,
+        "drop_out": 0.3,
+    }
+    return config
 
 
 def setup_device():
@@ -176,34 +163,15 @@ def get_loss_fn(config, train_data, device):
     Returns:
         torch.nn.Module: Loss function with optional pos_weight.
     """
-    loss_type = config["training"].get("loss_type", "bce")  # Default to bce
-
-    if loss_type == "focal":
-        print(
-            f"Using Focal Loss (alpha={config['training']['focal_alpha']}, gamma={config['training']['focal_gamma']})"
+    if config["training"]["use_post_weight"]:
+        _, pos_weight = get_pos_weight(
+            train_data.patient_ids,
+            train_data.y,
+            config["training"]["max_post_weight"],
+            device,
         )
-        # Note: Focal Loss alpha handles imbalance, so we ignore use_post_weight here.
-        # You could potentially combine them, but typically alpha suffices.
-        return FocalLoss(
-            alpha=config["training"]["focal_alpha"],
-            gamma=config["training"]["focal_gamma"],
-            logits=True,  # Model outputs logits
-        )
-    elif loss_type == "bce":
-        if config["training"]["use_post_weight"]:
-            print("Using BCE Loss with Positive Weight")
-            _, pos_weight = get_pos_weight(
-                train_data.patient_ids,
-                train_data.y,
-                config["training"]["max_post_weight"] + 1,
-                device,
-            )
-            return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        else:
-            print("Using Standard BCE Loss")
-            return nn.BCEWithLogitsLoss()
-    else:
-        raise ValueError(f"Unknown loss_type: {loss_type}")
+        return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    return nn.BCEWithLogitsLoss()
 
 
 # ============================================================================
@@ -211,66 +179,77 @@ def get_loss_fn(config, train_data, device):
 # ============================================================================
 
 
-class GridSearchModel:
-    def __init__(self, config, device, train_data, val_data, in_dim):
+class ModelWrapper:
+    def __init__(self, config, device, in_dim):
         """Initialize the grid search model with configuration, device, and data."""
         self.config = config
         self.device = device
-        self.train_data = train_data
-        self.val_data = val_data
-        self.val_loader = val_data.loader
         self.model = get_model(
             model_to_use=config["xperiment"]["model"],
             config=config,
             in_dim=in_dim,
             device=device,
         )
-        self.f2_score = 0
-        self.f1_score = 0
         self.model_name = config["xperiment"]["name"]
-        self.loss_fn = get_loss_fn(config, train_data, device)
-        self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
-            lr=config["training"]["lr"],
-            weight_decay=config["training"]["weight_decay"],
-        )
 
-    def train_and_evaluate(self):
+    def pretrain(self, train_data, val_data):
+        model_cpy = copy.deepcopy(self.model)
+        pretrain_path = masked_pretrain(
+            model=model_cpy,
+            dataset=train_data.dataset,
+            val_dataset=val_data.dataset,
+            batch_size=self.config["pretrain"]["batch_size"],
+            epochs=self.config["pretrain"]["epochs"],
+            mask_ratio=self.config["pretrain"].get("mask_ratio", 0.15),
+            device=self.device,
+            save_path=self.config["pretrain"]["save_path"],
+        )
+        load_pretrained_encoder(self.model, pretrain_path)
+
+    def train(self, train_data, val_data):
         """Train the model and evaluate on validation data, storing performance metrics."""
+        self.train_data = train_data
+        self.val_loader = val_data.loader
+        self.loss_fn = get_loss_fn(self.config, train_data, self.device)
+        self.optimizer = torch.optim.AdamW(
+            self.model.parameters(), lr=self.config["training"]["lr"]
+        )
         res = training_loop(
             self.model_name,
             self.model,
-            self.train_data.loader,
-            self.val_data.loader,
+            train_data.loader,
+            val_data.loader,
             self.optimizer,
             self.loss_fn,
             self.config["training"]["epochs"],
             self.device,
         )
+
         self.epoch_counter = res["epoch_counter"]
         self.loss_counter = res["loss_counter"]
         self.acc_counter = res["acc_counter"]
         self.model = res["model"]
 
-        _, _, _, _, _, y_pred, y_true = validation_loop(
+        _, _, _, _, _, y_pred, y_true, best_threshold = validation_loop(
             self.model,
             self.val_loader,
             self.loss_fn,
             self.device,
-            self.config["testing"]["threshold"],
         )
-        self.f2_score = get_f2_score(y_pred, y_true)
-        # Also compute F1-score
-        self.f1_score = get_f1_score(y_pred, y_true)
 
-    def test_model(self, test_loader):
+        self.f2_score = get_f2_score(y_pred, y_true)
+        self.f1_score = get_f1_score(y_pred, y_true)
+        self.best_threshold = best_threshold
+        save_model(self.model_name, self.model)
+
+    def test(self, test_data):
         """Test the trained model on test data and generate plots and metrics."""
         all_y_logits, all_y_probs, all_y_pred, all_y_test = testing_loop(
             model=self.model,
-            test_loader=test_loader,
+            test_loader=test_data.loader,
             loss_fn=self.loss_fn,
             device=self.device,
-            threshold=0.5,
+            threshold=self.best_threshold,
         )
 
         data_plots_and_metrics(
@@ -286,14 +265,6 @@ class GridSearchModel:
             self.model,
             feature_names=self.train_data.X.columns.tolist(),
         )
-
-    def delete(self):
-        """Delete saved model files associated with this experiment."""
-        delete_model(self.model_name)
-
-    def save(self):
-        """Save the current model state with the experiment name."""
-        save_model(self.model_name, self.model)
 
 
 # ============================================================================
@@ -355,7 +326,7 @@ def get_data(config, type):
         batch_size=config["testing" if type == "test" else "training"]["batch_size"],
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=12,
+        num_workers=4,
     )
 
     return DataWrapper.from_map(
@@ -380,16 +351,16 @@ def save_best_models(best_models):
         best_model.save()
 
 
-def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchModel:
+def run_grid_search(config, device, train_data, val_data, in_dim) -> ModelWrapper:
     """Run hyperparameter grid search over specified dimensions and return the best model."""
     best_model = None
     iterations = 0
     total_iterations = 4
 
     num_heads = 4
-    drop_out = 0.3
-    for d_model in [64]:
-        for num_layers in [2]:
+    drop_out = 0.2
+    for d_model in [128]:
+        for num_layers in [4]:
             iterations += 1
             print(
                 f"Running grid search: {iterations}/{total_iterations} " f"iterations"
@@ -405,7 +376,7 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
                 "input_dimension": in_dim,
             }
 
-            model = GridSearchModel(config_new, device, train_data, val_data, in_dim)
+            model = ModelWrapper(config_new, device, train_data, val_data, in_dim)
             model.train_and_evaluate()
 
             if best_model is None or model.f2_score > best_model.f2_score:
@@ -427,25 +398,30 @@ def run_grid_search(config, device, train_data, val_data, in_dim) -> GridSearchM
 
 
 def pipeline():
-    """Orchestrate the entire workflow: data loading, grid search per dataset type, testing, and returning best models."""
-    config = setup_base_config()
     device = setup_device()
-    val_data = get_data(config, "val")
-    test_data = get_data(config, "test")
-    best_models = {}
-    for dataset_type in ["oversampled"]:
-        print(f"Running grid search for {dataset_type}")
-        config_new = copy.deepcopy(config)
-        config_new["dataset_type"] = dataset_type
+    base_config = setup_base_config(name="base_config", dataset_type="no_sampling")
+    val_data = get_data(base_config, "val")
+    test_data = get_data(base_config, "test")
+    no_sampling_train_data = get_data(base_config, "train")
+    models = []
+    for dataset_type in ["undersampled", "oversampled", "no_sampling"]:
 
-        train_data = get_data(config_new, "train")
-        best_model = run_grid_search(
-            config_new, device, train_data, val_data, train_data.X.shape[1]
-        )
-        best_model.test_model(test_data.loader)
-        best_models[dataset_type] = best_model
-
-    return best_models
+        configs = [
+            get_small_model_config(dataset_type),
+            get_medium_model_config(dataset_type),
+            get_large_model_config(dataset_type),
+        ]
+        for config in configs:
+            train_data = get_data(config, "train")
+            print(
+                f"\n\nRunning pipeline search for {dataset_type} with {config['xperiment']['name']}\n\n"
+            )
+            model = ModelWrapper(config, device, train_data.X.shape[1])
+            model.pretrain(no_sampling_train_data, val_data)
+            model.train(train_data, val_data)
+            model.test(test_data)
+            models.append(model)
+    return models
 
 
 if __name__ == "__main__":

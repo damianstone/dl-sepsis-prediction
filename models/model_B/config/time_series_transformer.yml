@@ -1,29 +1,35 @@
 xperiment:
-  name: '13_oversampled_64_4_2'
-  model: 'time_series'
+  name: "28_undersampled_3070_V2_pretrained_128_4_2"
+  model: "time_series"
 
 data:
-  data_file_name: 'V2_preprocessed'
+  data_file_name: "V2_preprocessed"
   use_last_processed_data: false
   sampling: true
   sampling_method: undersample
   sampling_minority_ratio: 0.3
-  train_sample_fraction: 0.5
+  train_sample_fraction: 1
   test_size: 0.2
   random_state: 42
 
 model:
-  d_model: 64
+  d_model: 128
   num_heads: 4
-  num_layers: 1
+  num_layers: 2
   drop_out: 0.1
 
 training:
-  batch_size: 128
+  batch_size: 256
   use_post_weight: true
   max_post_weight: 5
-  lr: 0.001
+  lr: 0.00001
   epochs: 1000
 
 testing:
-  batch_size: 128
+  batch_size: 256
+
+pretrain:
+  enabled: true
+  epochs: 100
+  batch_size: 256
+  mask_ratio: 0.15
