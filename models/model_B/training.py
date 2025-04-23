@@ -116,8 +116,7 @@ def get_earliest_hour(probs_masked, patient_pred, threshold):
 def compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn):
     # y_logits = (seq len, batch size)
     # y_batch = (seq len, batch size)
-    # valid_mask = (seq len, batch size) -> true for valid positions
-    valid_mask = ~attention_mask
+    valid_mask = ~attention_mask  # (seq len, batch size) -> true for valid positions
     masked_outputs = y_logits[valid_mask]
     masked_targets = y_batch[valid_mask]
     return loss_fn(masked_outputs, masked_targets)
