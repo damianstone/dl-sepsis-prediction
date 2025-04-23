@@ -84,14 +84,14 @@ def setup_base_config(name, dataset_type):
             "use_post_weight": True,
             "max_post_weight": 5,
             "lr": 0.00001,
-            "epochs": 1,
+            "epochs": 1000,
         },
         "testing": {
             "batch_size": 256,
         },
         "pretrain": {
             "enabled": True,
-            "epochs": 1,
+            "epochs": 1000,
             "batch_size": 256,
             "mask_ratio": 0.15,
             "save_path": f"{project_root}/models/model_B/saved/pretrained_encoder_{name}_{dataset_type}.pth",
