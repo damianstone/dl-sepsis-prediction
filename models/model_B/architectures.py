@@ -46,19 +46,58 @@ class PositionalEncoding(nn.Module):
         # we use sine and cosine to represent the time and position of each patient event (record)
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        # change to (max_len, 1, d_model) to match sequence-first format
-        pe = pe.unsqueeze(1)
+        pe = pe.unsqueeze(0)
         self.register_buffer("pe", pe)
 
     def forward(self, x):
-        # x: (seq_len, batch_size, d_model)
-        x = x + self.pe[: x.size(0)]
+        """
+        x: Tensor of shape (seq_len, batch_size, d_model)
+        """
+        # number of time steps
+        seq_len = x.size(0)
+        # extract positional encodings for these time steps: (seq_len, d_model)
+        pe = self.pe[0, :seq_len, :]  # (seq_len, d_model)
+        # add a batch dimension for broadcasting: (seq_len, 1, d_model)
+        pe = pe.unsqueeze(1)
+        # broadcast add to the input tensor
+        x = x + pe  # (seq_len, batch_size, d_model)
         return self.dropout(x)
+
+
+# --- Attention-based pooling ---
+class AttentionPooling(nn.Module):
+    """
+    Attention-based pooling: learns to weight each time step of the sequence.
+    """
+
+    def __init__(self, d_model):
+        super().__init__()
+        # project each time-step embedding to a scalar score
+        self.attn_proj = nn.Linear(d_model, 1)
+
+    def forward(self, x, mask=None):
+        """
+        x: Tensor of shape (seq_len, batch_size, d_model)
+        mask: optional Bool Tensor of shape (seq_len, batch_size) where True=valid
+        """
+        # compute raw attention scores for each time step
+        scores = self.attn_proj(x)  # (seq_len, batch_size, 1)
+
+        if mask is not None:
+            mask_bool = mask.bool()
+            # mask out padding positions: set their scores to -inf
+            scores = scores.masked_fill(~mask_bool.unsqueeze(-1), float("-inf"))
+
+        # normalize scores across time dimension
+        weights = torch.softmax(scores, dim=0)  # (seq_len, batch_size, 1)
+
+        # weighted sum of time-step embeddings
+        pooled = (weights * x).sum(dim=0)  # (batch_size, d_model)
+        return pooled
 
 
 class TransformerTimeSeries(nn.Module):
     """
-    Will this patient develop sepsis at any point during their stay?
     input_dim = number of features in the dataset
     d_model options = 64, 128, 256
     n_heads = 2 or 4 for multi attention
@@ -67,47 +106,91 @@ class TransformerTimeSeries(nn.Module):
 
     def __init__(self, input_dim=1, d_model=64, n_heads=2, n_layers=2, dropout=0.1):
         super().__init__()
+        self.input_dim = input_dim
+        self.d_model = d_model
+
+        # Shared modules
         self.embedding = nn.Linear(in_features=input_dim, out_features=d_model)
         self.positional_encoder = PositionalEncoding(d_model, dropout)
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads)
+        self.encoder_layer = nn.TransformerEncoderLayer(
+            d_model, n_heads, dropout=dropout, batch_first=False
+        )
         self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=n_layers)
-        self.attention = nn.Linear(d_model, 1)
-        self.linear_layer = nn.Linear(in_features=d_model, out_features=1)
+
+        # Heads
+        self.linear_layer = nn.Linear(
+            in_features=d_model, out_features=1
+        )  # classification
+        self.reconstruction_head = nn.Linear(
+            in_features=d_model, out_features=input_dim
+        )  # pretraining
+
+        # Pooling for classification
+        self.attn_pool = AttentionPooling(d_model)
+
+        # Learnable mask token for masked‑value modelling
+        self.mask_token = nn.Parameter(torch.zeros(input_dim))
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _encode(self, x, mask=None):
+        """Embed + positionally encode + transformer encode.
+
+        Parameters
+        ----------
+        x : Tensor (S, B, F)
+        mask : Bool Tensor (S, B) with True for valid entries.
+        """
+        x = self.embedding(x)
+        x = self.positional_encoder(x)
+
+        enc_mask = None
+        if mask is not None:
+            enc_mask = (~mask.bool()).transpose(0, 1)  # batch, seq_len
+
+        h = self.encoder(x, src_key_padding_mask=enc_mask)
+        return h
+
+    # ------------------------------------------------------------------
+    # Pretraining forward
+    # ------------------------------------------------------------------
+
+    def forward_reconstruction(self, x, mask=None):
+        """Reconstruct original feature values for masked‑value modelling."""
+        # Replace explicit zeros (masked positions) with learnable token
+        token = self.mask_token.view(1, 1, -1)
+        masked_positions = x == 0
+        x = torch.where(masked_positions, token, x)
+
+        h = self._encode(x, mask)
+        return self.reconstruction_head(h)
+
+    # ------------------------------------------------------------------
+    # Classification forward (unchanged external interface)
+    # ------------------------------------------------------------------
 
     def forward(self, x, mask=None):
+        orig_mask = mask  # keep True=valid for pooling
         # x: (sequence_length, batch_size, feature_dim)
         x = self.embedding(x)  # (seq_len, batch_size, d_model)
         x = self.positional_encoder(x)  # (seq_len, batch_size, d_model)
 
-        # Adjust mask shape: collate_fn returns mask as (seq_len, batch_size),
-        # but TransformerEncoder expects src_key_padding_mask as (batch_size, seq_len)
-        if mask is not None:
-            mask = ~mask.transpose(0, 1)
+        # prepare masks
+        if orig_mask is not None:
+            # encoder mask: True = padding
+            enc_mask = (~orig_mask.bool()).transpose(0, 1)  # (batch_size, seq_len)
+        else:
+            enc_mask = None
 
-        x = self.encoder(x, src_key_padding_mask=mask)  # (seq_len, batch_size, d_model)
+        x = self.encoder(
+            x, src_key_padding_mask=enc_mask
+        )  # (seq_len, batch_size, d_model)
 
-        # x = x.max(dim=0).values  # max pooling over time
+        # Pool over the sequence dimension (now dimension 0) to get one representation per batch element
+        x = self.attn_pool(
+            x, orig_mask
+        )  # AttentionPooling expects True=valid (seq_len, batch)
         x = self.linear_layer(x).squeeze(-1)  # (batch_size)
         return x
-
-    # def forward(self, x, mask=None):
-    #     # x: (sequence_length, batch_size, feature_dim)
-    #     x = self.embedding(x)  # (seq_len, batch_size, d_model)
-    #     x = self.positional_encoder(x)
-
-    #     if mask is not None:
-    #         mask = ~mask.transpose(0, 1)
-
-    #     x = self.encoder(x, src_key_padding_mask=mask)
-
-    #     # gives more weight to later measurements
-    #     seq_len = x.size(0)
-    #     temporal_bias = torch.exp(torch.arange(seq_len, device=x.device) / seq_len)
-    #     # Shape: (seq_len, 1, 1)
-    #     temporal_bias = temporal_bias.unsqueeze(-1).unsqueeze(-1)
-
-    #     # Attention-weighted pooling
-    #     attention_weights = torch.softmax(self.attention(x), dim=0)
-    #     x = torch.sum(x * attention_weights, dim=0)  # Weighted sum across time
-
-    #     return self.linear_layer(x).squeeze(-1)

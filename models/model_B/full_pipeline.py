@@ -1,3 +1,4 @@
+import copy
 import os
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ from model_utils.helper_functions import save_xperiment_csv, save_xperiment_yaml
 from model_utils.metrics import save_metrics
 from model_utils.plots import save_plots
 from preprocess import preprocess_data
+from pretrain import load_pretrained_encoder, masked_pretrain
 from testing import testing_loop
 from torch import nn
 from torch.utils.data import DataLoader
@@ -77,6 +79,7 @@ def get_pos_weight(ids, y, max_weight=5, device=torch.device("cpu")):
 
     weight = round(negative_count / positive_count, 2)
     p_w = min(weight, max_weight)
+    print(f"Pos weight: {p_w}")
     return weight, torch.tensor([p_w], dtype=torch.float32, device=device)
 
 
@@ -148,6 +151,7 @@ def get_model(model_to_use, config, in_dim, device):
             n_layers=config["model"]["num_layers"],
             dropout=config["model"]["drop_out"],
         ).to(device)
+
     else:
         model = TransformerClassifier(
             input_dim=in_dim,
@@ -249,6 +253,29 @@ def full_pipeline():
         loss_fn = nn.BCEWithLogitsLoss()
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["training"]["lr"])
+
+    # -------------------------------- OPTIONAL SELF‑SUPERVISED PRE‑TRAIN --------------------------------
+    pre_cfg = config.get("pretrain", {})
+    if pre_cfg.get("enabled", False):
+        ckpt_existing = config["model"].get("pretrained_encoder")
+        if ckpt_existing and not pre_cfg.get("overwrite", False):
+            print(f"Using existing pretrained encoder at {ckpt_existing}")
+        else:
+            print("Starting self‑supervised masked‑value pre‑training…")
+            model_pretrain = copy.deepcopy(model)
+            ckpt_path = masked_pretrain(
+                model=model_pretrain,
+                dataset=train_dataset,
+                val_dataset=val_dataset,
+                batch_size=pre_cfg.get("batch_size", 256),
+                epochs=pre_cfg.get("epochs", 10),
+                mask_ratio=pre_cfg.get("mask_ratio", 0.15),
+                device=device,
+                save_path=pre_cfg.get("save_path"),
+            )
+            config["model"]["pretrained_encoder"] = str(ckpt_path)
+
+        load_pretrained_encoder(model, ckpt_path)
 
     # -------------------------------- TRAINING LOOP --------------------------------
     res = training_loop(
