@@ -90,7 +90,7 @@ def setup_base_config(name, dataset_type):
             "batch_size": 256,
         },
         "pretrain": {
-            "enabled": True,
+            "enabled": False,
             "epochs": 10,
             "batch_size": 256,
             "mask_ratio": 0.15,
@@ -417,7 +417,8 @@ def pipeline():
                 f"\n\nRunning pipeline search for {dataset_type} with {config['xperiment']['name']}\n\n"
             )
             model = ModelWrapper(config, device, train_data.X.shape[1])
-            model.pretrain(no_sampling_train_data, val_data)
+            if config["pretrain"]["enabled"]:
+                model.pretrain(no_sampling_train_data, val_data)
             model.train(train_data, val_data)
             model.test(test_data)
             models.append(model)
