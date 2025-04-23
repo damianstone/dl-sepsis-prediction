@@ -91,7 +91,7 @@ def setup_base_config(name, dataset_type):
         },
         "pretrain": {
             "enabled": True,
-            "epochs": 1000,
+            "epochs": 10,
             "batch_size": 256,
             "mask_ratio": 0.15,
             "save_path": f"{project_root}/models/model_B/saved/pretrained_encoder_{name}_{dataset_type}.pth",
@@ -326,7 +326,7 @@ def get_data(config, type):
         batch_size=config["testing" if type == "test" else "training"]["batch_size"],
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=4,
+        num_workers=12,
     )
 
     return DataWrapper.from_map(
