@@ -90,20 +90,18 @@ def data_plots_and_metrics(
     feature_names,
 ):
     xperiment_name = config["xperiment"]["name"]
-    all_y_logits = torch.cat(all_y_logits).numpy().flatten()
-    all_y_probs = torch.cat(all_y_probs).numpy().flatten()
+    # all_y_logits = torch.cat(all_y_logits).numpy().flatten()
+    # all_y_probs = torch.cat(all_y_probs).numpy().flatten()
     all_y_pred = torch.cat(all_y_pred).numpy().flatten()
     all_y_test = torch.cat(all_y_test).numpy().astype(int)
     df = pd.DataFrame(
         {
-            "y_logits": all_y_logits,
-            "y_probs": all_y_probs,
             "y_pred": all_y_pred,
             "y_test": all_y_test,
         }
     )
     y_test = df["y_test"].values
-    y_probs = df["y_probs"].values
+    y_probs = [1] * len(y_test)
     y_pred = df["y_pred"].values
     try:
         save_xperiment_csv(root, xperiment_name, df)
@@ -242,12 +240,13 @@ def full_pipeline():
         weight, pos_weight = get_pos_weight_hour(flat_labels, max_p, device)
 
         config["training"]["weight"] = float(weight)
-        config["training"]["post_weight"] = float(pos_weight)
         loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     else:
         loss_fn = nn.BCEWithLogitsLoss()
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config["training"]["lr"])
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=config["training"]["lr"], weight_decay=0.01
+    )
 
     # -------------------------------- TRAINING LOOP --------------------------------
     res = training_loop(
@@ -263,8 +262,8 @@ def full_pipeline():
     epoch_counter = res["epoch_counter"]
     loss_counter = res["loss_counter"]
     acc_counter = res["acc_counter"]
-    config["training"]["best_valition_f2_score"] = res["best_f2_score"]
-
+    config["training"]["best_f1_score"] = float(res["best_f1_score"])
+    config["testing"]["best_threshold"] = float(res["best_threshold"])
     # -------------------------------- TESTING LOOP --------------------------------
     batch_size = config["testing"]["batch_size"]
     dataset = SepsisPatientDataset(
@@ -292,7 +291,7 @@ def full_pipeline():
         test_loader=test_loader,
         loss_fn=loss_fn,
         device=device,
-        threshold=0.5,
+        threshold=res["best_threshold"],
     )
 
     data_plots_and_metrics(

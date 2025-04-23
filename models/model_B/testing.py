@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import torch
-from torchmetrics import F1Score, FBetaScore, Precision, Recall
+from torchmetrics import Accuracy, F1Score, FBetaScore, Precision, Recall
 from tqdm import tqdm
 
 
@@ -28,33 +28,25 @@ def load_model(xperiment_name, model):
 
 
 def compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn):
-    """
-    at every hour, predict whether this patient ever gets sepsis
-    doesn't not learn when exactly the patient gets sepsis
-    """
     # y_logits = (seq len, batch size)
-    # y_batch = (batch size) -> one label per patient
-    # valid_mask = (seq len, batch size) -> true for valid positions
-
-    expanded_targets = y_batch.unsqueeze(0)  # 1, batch size
-    # (seq len, batch size)
-    expanded_targets = expanded_targets.expand(y_logits.size(0), y_logits.size(1))
-    # padded positions = True (seq len, batch size)
-    valid_mask = ~attention_mask  # make valid positions to be = True
-
+    # y_batch = (seq len, batch size)
+    valid_mask = ~attention_mask  # (seq len, batch size) -> true for valid positions
     masked_outputs = y_logits[valid_mask]
-    masked_targets = expanded_targets[valid_mask]
-
+    masked_targets = y_batch[valid_mask]
     return loss_fn(masked_outputs, masked_targets)
 
 
 def testing_loop(model, test_loader, loss_fn, device, threshold=0.3):
     test_loss = 0
     model.eval()
-    f1_score = F1Score(task="binary").to(device)
-    f2_score = FBetaScore(task="binary", beta=2.0).to(device)
-    precision = Precision(task="binary").to(device)
-    recall = Recall(task="binary").to(device)
+
+    f1_hour = F1Score(task="binary").to(device)
+    f2_hour = FBetaScore(task="binary", beta=2.0).to(device)
+    prec_hour = Precision(task="binary").to(device)
+    rec_hour = Recall(task="binary").to(device)
+    acc_hour = Accuracy(task="binary").to(device)
+
+    f2_patient = FBetaScore(task="binary", beta=2.0).to(device)
 
     all_y_logits, all_y_probs, all_y_pred, all_y_test = [], [], [], []
 
@@ -69,48 +61,38 @@ def testing_loop(model, test_loader, loss_fn, device, threshold=0.3):
             )
 
             # Forward pass
-            # (seq_len, batch_size)
             y_logits = model(X_batch, mask=attention_mask)
-
+            y_probs = torch.sigmoid(y_logits)
+            y_preds = (y_probs >= threshold).float()
+            # make padded values = False
             valid = ~attention_mask
-            # push padded positions to −∞  (never chosen by max)
-            masked_logits = y_logits.masked_fill(valid, -1e9)
-            patient_level_logits, _ = masked_logits.max(dim=0)
-            patient_level_probs = torch.sigmoid(patient_level_logits)
-            patient_level_preds = (patient_level_probs >= threshold).float()
 
-            # compute loss
-            loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
+            # hour level metrics
+            f1_hour.update(y_preds[valid], y_batch[valid])
+            f2_hour.update(y_preds[valid], y_batch[valid])
+            prec_hour.update(y_preds[valid], y_batch[valid])
+            rec_hour.update(y_preds[valid], y_batch[valid])
+            acc_hour.update(y_preds[valid], y_batch[valid])
 
-            # Update all metrics with masked predictions and targets
-            f1 = f1_score(patient_level_preds, y_batch)
-            f2 = f2_score(patient_level_preds, y_batch)
-            prec = precision(patient_level_preds, y_batch)
-            rec = recall(patient_level_preds, y_batch)
+            # NOTE: patient level metrics
+            # any positive hour then patient with sepsis
+            patient_pred = y_preds.masked_fill(attention_mask, 0).any(dim=0).float()
+            patient_true = y_batch.masked_fill(attention_mask, 0).any(dim=0).float()
+            f2_patient.update(patient_pred, patient_true)
 
-            test_loss += loss.item()
-
-            progress_bar.set_postfix(
-                {
-                    "Loss": f"{loss.item():.4f}",
-                    "Precision": f"{prec.item():.4f}",
-                    "Recall": f"{rec.item():.4f}",
-                    "F1": f"{f1.item():.4f}",
-                    "F2": f"{f2.item():.4f}",
-                }
-            )
-
-            all_y_logits.append(patient_level_logits.cpu())
-            all_y_probs.append(patient_level_probs.cpu())
-            all_y_pred.append(patient_level_preds.cpu())
-            all_y_test.append(y_batch.cpu())
+            all_y_logits.append(0)
+            all_y_probs.append(0)
+            all_y_pred.append(patient_pred.cpu())
+            all_y_test.append(patient_true.cpu())
 
     # final metrics
-    final_f1 = f1_score.compute()
-    final_f2 = f2_score.compute()
-    final_precision = precision.compute()
-    final_recall = recall.compute()
-    test_loss /= len(test_loader)
+    final_f1 = f1_hour.compute()
+    final_f2 = f2_hour.compute()
+    final_prec = prec_hour.compute()
+    final_rec = rec_hour.compute()
+    final_acc = acc_hour.compute()
+
+    final_f2_patient = f2_patient.compute()
 
     print("\n" + "=" * 50)
     print("              TEST RESULTS              ")
@@ -118,8 +100,10 @@ def testing_loop(model, test_loader, loss_fn, device, threshold=0.3):
     print(f"Loss       : {test_loss:.5f}")
     print(f"F1 Score   : {final_f1:.4f}")
     print(f"F2 Score   : {final_f2:.4f}")
-    print(f"Precision  : {final_precision:.4f}")
-    print(f"Recall     : {final_recall:.4f}")
+    print(f"Precision  : {final_prec:.4f}")
+    print(f"Recall     : {final_rec:.4f}")
+    print(f"Accuracy   : {final_acc:.4f}")
+    print(f"F2 Patient : {final_f2_patient:.4f}")
     print("=" * 50 + "\n")
 
     return all_y_logits, all_y_probs, all_y_pred, all_y_test

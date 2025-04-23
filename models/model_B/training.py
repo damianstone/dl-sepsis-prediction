@@ -170,16 +170,6 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
             patient_pred = y_preds.masked_fill(attention_mask, 0).any(dim=0).float()
             patient_true = y_batch.masked_fill(attention_mask, 0).any(dim=0).float()
             f2_patient.update(patient_pred, patient_true)
-            # # padding values = 0
-            # # push padded logits to −∞ so they never win the max
-            # masked_logits = y_logits.masked_fill(attention_mask, -1e9)
-            # # max‑pool over time axis → one logit per patient
-            # patient_logits = masked_logits.max(dim=0).values
-            # patient_prob = torch.sigmoid(patient_logits)
-            # patient_pred = (patient_prob >= threshold).float()
-            # # ground‑truth per patient: 1 if any hour label == 1
-            # patient_true = y_batch.max(dim=0).values
-            # f2_patient.update(patient_pred, patient_true)
 
     y_probs_all = torch.cat(y_probs_list).numpy()
     y_true_all = torch.cat(y_true_list).numpy()
@@ -203,7 +193,7 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
         val_loss, val_acc, val_prec, val_rec, val_f1, val_f2, val_f2_patient
     )
 
-    return val_loss, best_f1, best_thr
+    return val_loss, val_f1, best_thr
 
 
 def training_loop(
@@ -214,7 +204,7 @@ def training_loop(
     patience = 10
     best_f1_score = 0
     epochs_without_improvement = 0
-    min_epochs = 20
+    min_epochs = 5
     threshold = 0.5
 
     acc_hour = Accuracy(task="binary").to(device)
@@ -283,13 +273,13 @@ def training_loop(
 
         # validation loop + early stopping
         if val_loader is not None:
-            val_loss, best_f1, best_thr = validation_loop(
+            val_loss, val_f1, best_thr = validation_loop(
                 model, val_loader, loss_fn, device, threshold
             )
             threshold = best_thr
             if epoch >= min_epochs:
-                if best_f1 > best_f1_score:
-                    best_f1_score = best_f1
+                if val_f1 > best_f1_score:
+                    best_f1_score = val_f1
                     epochs_without_improvement = 0
                     save_model(experiment_name, model)
                 else:
@@ -303,7 +293,8 @@ def training_loop(
         "epoch_counter": epoch_counter,
         "loss_counter": loss_counter,
         "acc_counter": acc_counter,
-        "best_f2_score": best_f1_score,
+        "best_f1_score": best_f1_score,
+        "best_threshold": threshold,
         "model": model,
     }
     return res

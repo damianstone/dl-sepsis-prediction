@@ -1,5 +1,5 @@
 xperiment:
-  name: '14_undersampled_64_2_1'
+  name: '14_hour_undersampled_64_2_1'
   model: 'time_series'
 
 data:

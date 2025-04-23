@@ -235,8 +235,8 @@ def save_plots(
     os.makedirs(save_path, exist_ok=True)
 
     for plot_func, args, filename in [
-        (plot_roc_curve, (y_test, y_probs), "roc_curve.png"),
-        (plot_precision_recall_curve, (y_test, y_probs), "precision_recall_curve.png"),
+        # (plot_roc_curve, (y_test, y_probs), "roc_curve.png"),
+        # (plot_precision_recall_curve, (y_test, y_probs), "precision_recall_curve.png"),
         (plot_confusion_matrix, (y_test, y_pred), "confusion_matrix.png"),
         (plot_top_10_features, (model, feature_names), "10_important_features.png"),
         (
