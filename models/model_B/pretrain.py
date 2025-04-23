@@ -111,7 +111,7 @@ def masked_pretrain(
     val_dataset: SepsisPatientDataset,
     batch_size: int = 256,
     epochs: int = 10,
-    lr: float = 1e-3,
+    lr: float = 1e-4,
     mask_ratio: float = 0.15,
     patience: int = 5,
     device: torch.device | str | None = None,

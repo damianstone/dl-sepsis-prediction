@@ -83,7 +83,7 @@ def setup_base_config(name, dataset_type):
             "batch_size": 256,
             "use_post_weight": True,
             "max_post_weight": 5,
-            "lr": 0.00001,
+            "lr": 0.0001,
             "epochs": 1000,
         },
         "testing": {
