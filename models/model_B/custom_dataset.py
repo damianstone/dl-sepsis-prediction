@@ -3,7 +3,9 @@ from collections import defaultdict
 import torch
 from torch.utils.data import Dataset
 
-# NOTE: purpose is to return in tensors and convert into sequences format + padding and masking
+"""
+    Will this patient develop sepsis at any point during their stay?
+"""
 
 
 class SepsisPatientDataset(Dataset):
@@ -54,12 +56,7 @@ class SepsisPatientDataset(Dataset):
 
     def __getitem__(self, idx):
         """
-        fetches all records for a given patient and converts them to tensors
-        assigns a patient-level label (1 if any record has sepsis)
-
-        example output for patient B:
-        X = tensor([[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]])
-        y = tensor(1)  # because at least one record has sepsis
+        if any time step was positive sepsis we return Y = 1, making all the time steps to the positive
         """
         patient_records = self.patient_to_records[idx]
         X = torch.stack(
@@ -71,66 +68,27 @@ class SepsisPatientDataset(Dataset):
 
 
 def collate_fn(batch):
-    """
-    makes sequences the same length by padding shorter ones with zeros and
-    creates masks to tell the transformer which values are real data versus padding.
-
-    this function basically just makes the data compatible with the transformer model
-    in the following shape:
-    (sequence_length, batch_size, feature_dim).
-
-    Before padding, the data is in batch-first format:
-      X_batch = [
-          tensor([[0.1, 0.2], [0.3, 0.4]]),         # Patient A (2 records)
-          tensor([[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]])  # Patient B (3 records)
-      ]
-
-    After padding (still in batch-first format):
-      padded_X = [
-          [[0.1, 0.2], [0.3, 0.4], [0.0, 0.0]],  # Patient A (padded to 3 records)
-          [[0.5, 0.6], [0.7, 0.8], [0.9, 1.0]]   # Patient B (no padding needed)
-      ]
-      attention_mask = [
-          [1, 1, 0],  # Patient A (third record is padding)
-          [1, 1, 1]   # Patient B (all records are valid)
-      ]
-
-    After transposing to match the default transformer configuration:
-      padded_X becomes:
-        [
-          [[0.1, 0.2], [0.5, 0.6]],  # Time step 1 for all patients
-          [[0.3, 0.4], [0.7, 0.8]],  # Time step 2 for all patients
-          [[0.0, 0.0], [0.9, 1.0]]   # Time step 3 (Patient A padded, Patient B valid)
-        ]
-      attention_mask becomes:
-        [
-          [1, 1],  # Time step 1
-          [1, 1],  # Time step 2
-          [0, 1]   # Time step 3
-        ]
-
-    final output shapes:
-      padded_X: (sequence_length, batch_size, feature_dim)
-      attention_mask: (sequence_length, batch_size)
-    """
+    # all the sequences
     X_batch = [x for x, y in batch]
+    # all the labels in one tensor for each group of sequences -> so a group of sequences have the same label
     y_batch = torch.stack([y for _, y in batch])
 
+    # find the max sequence length between all the time steps (the patient with more records)
     max_len = max([x.shape[0] for x in X_batch])
     feature_dim = X_batch[0].shape[1]
 
-    padded_X = torch.zeros(len(X_batch), max_len, feature_dim)
-    attention_mask = torch.ones(len(X_batch), max_len)
+    # (seq length, batch size, feature dim)
+    padded_X = torch.zeros(max_len, len(X_batch), feature_dim)
+    # (seq length, batch size)
+    attention_mask = torch.zeros(max_len, len(X_batch))
 
-    for i, x in enumerate(X_batch):
-        padded_X[i, : x.shape[0], :] = x
-        attention_mask[i, x.shape[0] :] = 0
+    for patient_id, patient_records in enumerate(X_batch):
+        seq_len = patient_records.shape[0]
+        padded_X[:seq_len, patient_id, :] = patient_records
+        attention_mask[:seq_len, patient_id] = 0  # valid data positions = 0
+        attention_mask[seq_len:, patient_id] = 1  # padding positions = 1 = True
 
-    # transpose -> (sequence_length, batch_size, feature_dim)
-    padded_X = padded_X.transpose(0, 1)
-    attention_mask = attention_mask.transpose(0, 1).bool()
-
-    return padded_X, y_batch, attention_mask
+    return padded_X, y_batch, attention_mask.bool()
 
 
 """
