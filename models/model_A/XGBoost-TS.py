@@ -24,39 +24,19 @@ def find_project_root(marker=".gitignore"):
     raise FileNotFoundError("Project root marker not found.")
 
 
-def load_top_features(n=20):
+def load_data():
     root = find_project_root()
-    shap_path = (root/ "models"/ "model_A"/ "outputs"/ "shap"/ "shap_features_default.csv")
-    shap_df = pd.read_csv(shap_path)
-    shap_df_sorted = shap_df.sort_values(by="mean_shap_positive", ascending=False)
-    top_features = shap_df_sorted["feature"].tolist()[:n]
-    print("\n Selected Features Used for XGBoost:")
-    for f in top_features:
-        print(f" - {f}")
-
-    return top_features
-
-def load_all_features():
-    root = find_project_root()
-    data_path = root / "dataset" / "final_datasets" / "no_sampling_train.parquet"
+    data_path = (root / "dataset"/ "final_datasets"/ "undersampled_train.parquet")
     df = pd.read_parquet(data_path)
-    feature_cols = [col for col in df.columns if col not in ["patient_id", "SepsisLabel", "SepsisLabel_patient"]]
-    return feature_cols
 
-
-def load_data(features):
-    root = find_project_root()
-    data_path = root / "dataset" / "final_datasets" / "undersampled_train.parquet"
-    df = pd.read_parquet(data_path)
     if not isinstance(df.index, pd.MultiIndex):
-        df.set_index(["patient_id"], inplace=True)
+        df.set_index(["patient_id", "ICULOS"], inplace=True)
 
-    X = df[features].fillna(-1)
-    label_col = (
-        "SepsisLabel_patient" if "SepsisLabel_patient" in df.columns else "SepsisLabel"
-    )
-    y = df[label_col]
-    return X, y
+    feature_cols = df.columns.difference(["SepsisLabel"])
+    X = df[feature_cols].fillna(-1)
+
+    y_patient = df.groupby("patient_id")["SepsisLabel"].max()
+    return X, df["SepsisLabel"], y_patient
 
 
 def get_next_output_dir(base_dir):
@@ -72,12 +52,10 @@ def get_next_output_dir(base_dir):
     return output_dir
 
 
-def train_xgboost(X, y, params, n_splits=3):
+def train_xgboost(X, y, y_patient, params, n_splits=3):
 
     patient_ids = X.index.get_level_values("patient_id")
-    patient_labels = (
-        pd.DataFrame({"pid": patient_ids, "label": y}).groupby("pid")["label"].max()
-    )
+    patient_labels = y_patient
     root = find_project_root()
     output_base = get_next_output_dir(root / "models" / "model_A" / "train_outputs")
     fold_results = []
@@ -137,12 +115,18 @@ def train_xgboost(X, y, params, n_splits=3):
 
         y_probs = bst.predict(dtest)
         y_pred = (y_probs >= 0.5).astype(int)
+        df_pred = pd.DataFrame({"y_true": y_test, "y_prob": y_probs, "y_pred": y_pred})
+        df_pred["patient_id"] = df_pred.index.get_level_values("patient_id")
 
-        auc = roc_auc_score(y_test, y_probs)
-        f1 = f1_score(y_test, y_pred)
-        f2 = fbeta_score(y_test, y_pred, beta=2)
-        recall = recall_score(y_test, y_pred)
-        precision = precision_score(y_test, y_pred)
+        df_patient = df_pred.groupby(level="patient_id").agg(
+            {"y_true": "max", "y_prob": "max", "y_pred": "max"}
+        )
+
+        auc = roc_auc_score(df_patient["y_true"], df_patient["y_prob"])
+        f1 = f1_score(df_patient["y_true"], df_patient["y_pred"])
+        f2 = fbeta_score(df_patient["y_true"], df_patient["y_pred"], beta=2)
+        recall = recall_score(df_patient["y_true"], df_patient["y_pred"])
+        precision = precision_score(df_patient["y_true"], df_patient["y_pred"])
 
         print(
             f"Fold {fold} - AUROC: {auc:.4f}, F1: {f1:.4f}, F2: {f2:.4f}, Recall: {recall:.4f}, Precision: {precision:.4f}"
@@ -216,9 +200,8 @@ def train_xgboost(X, y, params, n_splits=3):
 
 
 def main():
-    features = load_top_features(n=40)
-    # features = load_all_features()
-    X, y = load_data(features)
+
+    X, y_time, y_patient = load_data()
 
     params = {
         "objective": "binary:logistic",
@@ -232,7 +215,7 @@ def main():
         "alpha": 0.35,
     }
 
-    train_xgboost(X, y, params=params)
+    train_xgboost(X, y_time, y_patient, params=params)
 
 
 if __name__ == "__main__":

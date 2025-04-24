@@ -17,9 +17,9 @@ def find_project_root(marker=".gitignore"):
     raise FileNotFoundError("Project root marker not found.")
 
 
-def run_shap_on_data(parquet_file="train_balanced.parquet", output_tag="default"):
+def run_shap_on_data(parquet_file="no_sampling_train.parquet", output_tag="default"):
     root = find_project_root()
-    input_path = root / "dataset" / parquet_file
+    input_path = root / "dataset" /"final_datasets"/ parquet_file
     df = pd.read_parquet(input_path)
 
     if "patient_id" not in df.columns and "patient_id" in df.index.names:
@@ -29,10 +29,13 @@ def run_shap_on_data(parquet_file="train_balanced.parquet", output_tag="default"
         "SepsisLabel_patient" if "SepsisLabel_patient" in df.columns else "SepsisLabel"
     )
 
-    exclude = ["patient_id", label_col]
+    exclude_prefixes = ["SepsisLabel_", "patient_id"]
+    exclude_exact = [label_col]
     features = df.drop(
-        columns=[col for col in exclude if col in df.columns], errors="ignore"
-    ).fillna(-1)
+    columns=[col for col in df.columns
+        if col in exclude_exact or any(col.startswith(p) for p in exclude_prefixes)],
+    errors="ignore").fillna(-1)
+    
     labels = df[label_col].astype(int)
 
     model = xgb.XGBClassifier(n_estimators=400, max_depth=6, eval_metric="logloss")
@@ -147,5 +150,7 @@ def export_single_shap_to_csv(shap_values, features, sample_index, output_path):
 
 
 if __name__ == "__main__":
-    shap_values, features, sample_index, output_path = run_shap_on_data()
+    shap_values, features, shap_df = run_shap_on_data()
+    sample_index = 0
+    output_path = Path("single_sample_shap.csv")
     export_single_shap_to_csv(shap_values, features, sample_index, output_path)
