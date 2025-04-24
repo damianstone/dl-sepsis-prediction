@@ -140,8 +140,31 @@ def patient_heatmap(shap_vals, feature_names, time_index, idx: int) -> None:
         feature_names: List of feature names
         time_index: Array of time indices
         idx: Patient index to visualize
+        top_10_features: List of top 10 features to visualize
     """
-    plt.figure(figsize=(12, 6))
+
+    # truncate the time dimension if there is no data for the last hours
+    # check which hours have no data
+    # Identify hours where SHAP values are zero for every patient **and** every feature
+    # shap_vals has shape (N, T, F) -> we want a 1-D boolean mask over T
+    no_data_hours = (shap_vals == 0).all(axis=(0, 2))  # shape (T,)
+    print("no_data_hours: ", no_data_hours)
+    if no_data_hours.any():
+        print("Truncating universally empty time-steps", no_data_hours)
+        time_index = time_index[~no_data_hours]
+        shap_vals = shap_vals[:, ~no_data_hours]
+
+    # Further crop timesteps that are blank for the selected patient only
+    patient_no_data = (shap_vals[idx] == 0).all(axis=1)  # shape (T,)
+    if patient_no_data.any():
+        print("Truncating patient-specific empty time-steps", patient_no_data)
+        time_index = time_index[~patient_no_data]
+        shap_vals = shap_vals[:, ~patient_no_data]
+
+    # Dynamically scale the figure width so the heat-map fills the canvas
+    n_timesteps = shap_vals.shape[1]
+    width = max(6, n_timesteps * 0.2)  # 0.2 inch per timestep, min width 6
+    plt.figure(figsize=(width, 6))
     sns.heatmap(
         shap_vals[idx].T,  # (F, T)
         cmap="vlag",
@@ -257,12 +280,15 @@ def shap_pipeline():
     shap_model = ShapModel(model.model, train_data, device, pad_value=0.0)
     shap_vals = shap_model.get_shap_values(test_data)
 
-    abs_vals = np.abs(shap_vals)
-
     feature_names = train_data.X.columns.tolist()  # list of feature names
-    time_index = np.arange(shap_vals.shape[1])  # 0 … 246 hours
+    time_index = np.arange(shap_vals.shape[1])
 
-    patient_heatmap(shap_vals, feature_names, time_index, 0)
+    abs_vals = np.abs(shap_vals)
+    top_10_features = np.argsort(abs_vals.mean(axis=(0, 1)))[-10:]
+    top_10_shap_vals = shap_vals[:, :, top_10_features]
+    top_10_feature_names = np.array(feature_names)[top_10_features]
+
+    patient_heatmap(top_10_shap_vals, top_10_feature_names, time_index, 0)
     plot_global_feature_importance(abs_vals, feature_names)
     plot_temporal_importance(abs_vals, time_index)
     beeswarm_collapsed_over_time(shap_vals, feature_names)
