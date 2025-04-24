@@ -18,7 +18,8 @@ from tqdm import tqdm
 from training import validation_loop
 
 SEED = 42
-QUICK_DEBUG = True
+QUICK_DEBUG = False
+MEDIUM_DEBUG = True
 
 
 def to_batch_major_order(batch) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -84,26 +85,32 @@ class ShapModel(nn.Module):
     def get_shap_values(self, data):
         loader = DataLoader(
             data.dataset,
-            batch_size=10,
+            batch_size=64,
             shuffle=False,
             collate_fn=collate_fn_wrapper,
             drop_last=False,
         )
         shap_vals = []
+        masks = []
 
         # change this to loop through batches with tqdm
-
+        i = 0
         for batch in tqdm(loader):
             xs, mask = to_batch_major_order(batch)
             shap_vals.append(self.explainer.shap_values(xs))
+            masks.append(mask.cpu().numpy())
             if QUICK_DEBUG:
                 break
-
+            if MEDIUM_DEBUG:
+                i += 1
+                if i >= 2:
+                    break
         shap_vals = np.concatenate(shap_vals, axis=0)
         shap_vals = np.squeeze(shap_vals, -1)
+        masks = np.concatenate(masks, axis=0)
         # Broadcast mask to SHAP values without transposing to ensure matching dimensions
         # shap_vals shape: (B, T, F), mask shape: (B, T)
-        shap_vals = shap_vals * mask.cpu().numpy()[:, :, np.newaxis]
+        shap_vals = shap_vals * masks[:, :, np.newaxis]
 
         return shap_vals
 
@@ -245,6 +252,87 @@ def patient_heatmap(
     )
     plt.title(
         f"Patient {patient_id}  |  y_true={int(y_true)}  |  y_pred={int(y_pred)}  |  y_prob={y_prob:.2f}",
+        fontsize=14,
+    )
+    plt.xlabel("ICU LOS (hours)")
+    plt.ylabel("Feature")
+    plt.tight_layout()
+    plt.show()
+
+
+def global_heatmap(
+    shap_vals,
+    feature_names,
+    time_index,
+    target: int,
+    y_preds,
+    only_target_relevant: bool = True,
+) -> None:
+    """
+    Global heat-map of SHAP values across time (x) and features (y) for all patients
+    predicted as the target class.
+
+    Args:
+        shap_vals: SHAP values array
+        feature_names: List of feature names
+        time_index: Array of time indices
+        target: Target class (0 or 1)
+        y_preds: Predicted labels for each patient
+        only_target_relevant: If True, only show SHAP values relevant to target class
+    """
+    # Make sure we only use indices that exist in shap_vals
+    max_idx = len(shap_vals) - 1
+
+    # Filter to patients where model predicted the target class
+    # Limit to indices that are available in shap_vals
+    target_indices = np.where(y_preds == target)[0]
+    target_indices = target_indices[target_indices <= max_idx]
+
+    if len(target_indices) == 0:
+        print(f"No patients were predicted as class {target}")
+        return
+
+    # Extract and aggregate SHAP values for target class patients
+    target_shap_vals = copy.deepcopy(shap_vals[target_indices])
+
+    # Find non-padding timesteps across all patients
+    all_non_zero = np.where(~(target_shap_vals.sum(axis=(0, 2)) == 0))[0]
+    if len(all_non_zero) > 0:
+        last_timestep = all_non_zero[-1] + 1
+        valid_time_index = time_index[:last_timestep]
+        valid_shap_vals = target_shap_vals[:, :last_timestep, :]
+    else:
+        valid_time_index, valid_shap_vals = time_index, target_shap_vals
+
+    # Filter values based on target class if requested
+    if only_target_relevant:
+        valid_shap_vals = np.clip(
+            valid_shap_vals,
+            a_min=0 if target == 1 else None,
+            a_max=0 if target == 0 else None,
+        )
+
+    # Aggregate across patients
+    mean_shap_vals = valid_shap_vals.mean(axis=0)  # (T, F)
+
+    # Identify top features globally
+    mean_importance = np.abs(mean_shap_vals).mean(axis=0)
+    top_features = np.argsort(mean_importance)[-15:]  # Show top 15 for global view
+    top_feature_names = np.array(feature_names)[top_features]
+
+    # Create heatmap with top features
+    plt.figure(figsize=(max(10, valid_time_index.shape[0] * 0.1), 8))
+    sns.heatmap(
+        mean_shap_vals[:, top_features].T,
+        cmap="vlag",
+        center=0,
+        yticklabels=top_feature_names,
+        xticklabels=valid_time_index[
+            :: max(1, len(valid_time_index) // 20)
+        ],  # Show fewer ticks
+    )
+    plt.title(
+        f"Global SHAP Values for Class {target} Predictions (n={len(target_indices)})",
         fontsize=14,
     )
     plt.xlabel("ICU LOS (hours)")
@@ -398,9 +486,9 @@ def shap_pipeline():
             y_pred,
             y_prob,
         )
-        if QUICK_DEBUG:
-            break  # Only process one patient in debug mode
+        break
 
+    global_heatmap(shap_vals, feature_names, time_index, 1, y_preds)
     plot_global_feature_importance(top_10_abs_vals, top_10_feature_names)
     plot_temporal_importance(abs_vals, time_index)
     beeswarm_collapsed_over_time(shap_vals, feature_names)
