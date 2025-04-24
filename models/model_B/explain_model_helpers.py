@@ -1,5 +1,31 @@
+"""
+explain_model_helpers.py
+
+Utility helpers for SHAP explainability, plotting, and evaluation of the
+Transformer-based sepsis-prediction model.
+
+The module purposefully remains a *single file* so that it can be dropped into
+existing projects without changing their import paths.  The internal structure
+has, however, been modernised and sectioned to improve readability.
+
+Sections
+--------
+1. Configuration & logging
+2. Low-level tensor/data helpers
+3. Model wrapper (``ShapModel``)
+4. SHAP post-processing helpers
+5. Evaluation helpers
+6. Plotting utilities
+"""
+
+# =============================================================================
+# 1. Configuration & logging
+# =============================================================================
 import copy
-import os
+import logging
+from dataclasses import dataclass
+from enum import Enum, auto
+from pathlib import Path
 from typing import Tuple
 
 import matplotlib.cm as cm
@@ -16,40 +42,153 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from training import validation_loop
 
-SEED = 42
-QUICK_DEBUG = False
-MEDIUM_DEBUG = True
+__all__ = [
+    "ExplainConfig",
+    "ShapModel",
+    "strip_padding",
+    "remove_padding",  # backward-compat alias
+    "predict_per_patient",
+    "get_patient_predictions",  # backward-compat alias
+    "prepare_shap_values",
+    "get_pred_threshold",
+    "patient_heatmap",
+    "global_heatmap",
+    "global_importance_plot",
+]
+
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    # Default basic configuration – caller can override via logging API
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s"
+    )
+
+
+class DebugLevel(Enum):
+    """Verbosity levels used across this module."""
+
+    OFF = auto()
+    QUICK = auto()
+    MEDIUM = auto()
+
+
+@dataclass(frozen=True)
+class ExplainConfig:
+    """Centralised configuration shared by helpers in this file."""
+
+    seed: int = 42
+    debug: DebugLevel = DebugLevel.MEDIUM
+    pad_value: float = 0.0
+    batch_size: int = 64
+    max_len: int = 400  # maximum sequence length fed to collate_fn
+    top_k_features: int = 10  # default number of features to visualise
+    window_size: int = (
+        30  # default size (in hours) for sliding window in global heatmap
+    )
+
+
+# Instantiate a *module-level* config object that downstream code can mutate
+CONFIG = ExplainConfig()
+
+# Preserve original boolean flags for full backwards compatibility -------------
+QUICK_DEBUG = CONFIG.debug == DebugLevel.QUICK
+MEDIUM_DEBUG = CONFIG.debug == DebugLevel.MEDIUM
+SEED = CONFIG.seed
+
+# Set torch's random seed for reproducibility
+if torch.cuda.is_available():
+    torch.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
+else:
+    torch.manual_seed(SEED)
+
+# =============================================================================
+# 2. Low-level tensor/data helpers
+# =============================================================================
 
 
 def to_batch_major_order(batch) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Convert collate_fn output into (T, B, F) and mask (T, B).
-    """
-    xs, ys, mask = batch
+    """Convert ``collate_fn`` output into (T, B, F) *and* mask (T, B)."""
+
+    xs, _ys, mask = batch  # we do not need ``ys`` for SHAP
     xs_t = xs.permute(1, 0, 2)  # (T, B, F)
     mask_t = mask.permute(1, 0)  # (T, B)
     return xs_t, mask_t
 
 
+def collate_fn_wrapper(batch):
+    """Thin wrapper around the project-specific ``collate_fn`` with a fixed max_len."""
+
+    return collate_fn(batch, max_len=CONFIG.max_len)
+
+
+# -----------------------------------------------------------------------------
+# Padding helpers
+# -----------------------------------------------------------------------------
+
+
+def strip_padding(patient_data: np.ndarray, time_index: np.ndarray):
+    """Remove right-hand side padding rows (all-zero timesteps) in *patient_data*.
+
+    Parameters
+    ----------
+    patient_data
+        2-D array shaped (T, F).
+    time_index
+        Array of associated timesteps/hours.
+
+    Returns
+    -------
+    valid_time_index, valid_patient_data
+        Truncated arrays where trailing padding rows were discarded.
+    """
+
+    non_zero_timesteps = np.where(~(patient_data == 0).all(axis=1))[0]
+
+    if len(non_zero_timesteps) > 0:
+        last_timestep = non_zero_timesteps[-1] + 1
+        return time_index[:last_timestep], patient_data[:last_timestep]
+
+    return time_index, patient_data
+
+
+# Alias for backwards compatibility
+remove_padding = strip_padding  # noqa: E305
+
+
+# -----------------------------------------------------------------------------
+# SHAP post-processing helpers
+# -----------------------------------------------------------------------------
+
+
+def apply_shap_mask(shap_vals: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Remove the singleton output dimension and apply the *padding* mask."""
+
+    shap_vals_squeezed = np.squeeze(shap_vals, -1)  # (B, T, F)
+    return shap_vals_squeezed * mask[:, :, np.newaxis]
+
+
+# =============================================================================
+# 3. Model wrapper – ``ShapModel``
+# =============================================================================
+
+
 class ShapModel(nn.Module):
+    """Lightweight nn.Module wrapper so that SHAP can query the base network."""
+
     def __init__(
         self,
-        base_model,
+        base_model: nn.Module,
         background_data,
-        device,
-        pad_value: float = 0.0,
-    ):
-        """
-        Wrap model for SHAP compatibility.
-
-        Args:
-            base_model: Transformer model that expects (B, T, F) + mask
-            pad_value: Value used to pad sequences (often 0)
-        """
+        device: torch.device,
+        pad_value: float | None = None,
+    ) -> None:
         super().__init__()
         self.device = device
         self.base = base_model
-        self.pad_value = pad_value
+        self.pad_value = pad_value if pad_value is not None else CONFIG.pad_value
+
+        # Background batch used by GradientExplainer --------------------------
         bg_loader = DataLoader(
             background_data.dataset,
             batch_size=min(100, len(background_data.dataset)),
@@ -62,117 +201,103 @@ class ShapModel(nn.Module):
         self.bg_xs, self.bg_mask = to_batch_major_order(self.bg_batch)
         self.explainer = shap.GradientExplainer(self, self.bg_xs)
 
-    def forward(self, xs):
-        # xs comes in as (B, T, F)
-        xs = xs.to(self.device)  # move to appropriate device
+    # ---------------------------------------------------------------------
+    # nn.Module interface
+    # ---------------------------------------------------------------------
+    def forward(self, xs: torch.Tensor):
+        """Perform a forward pass compatible with SHAP's expectations."""
 
-        # Reconstruct the mask: True for non-padding timesteps
+        xs = xs.to(self.device)  # ensure correct device placement
+
+        # Reconstruct boolean mask where True denotes non-padding timesteps
         mask = xs.abs().sum(dim=-1) != (self.pad_value * xs.size(-1))
         mask = mask.transpose(0, 1)  # (B, T) -> (T, B)
 
-        # Transpose into (T, B, F) for transformer
-        xs_t = xs.transpose(0, 1)
+        logits = self.base(xs.transpose(0, 1), mask=mask)  # (B,) or (B, 1)
 
-        logits = self.base(xs_t, mask=mask)  # returns (B,) or (B,1)
+        # SHAP requires a 2-D output: (B, 1)
+        return logits.unsqueeze(-1) if logits.dim() == 1 else logits
 
-        # Ensure SHAP always sees a 2D output
-        if logits.dim() == 1:
-            logits = logits.unsqueeze(-1)  # (B,1)
-
-        return logits
-
+    # ---------------------------------------------------------------------
+    # Public helpers
+    # ---------------------------------------------------------------------
     def get_shap_values(self, data):
+        """Compute SHAP values in mini-batches (padding aware)."""
+
         loader = DataLoader(
             data.dataset,
-            batch_size=64,
+            batch_size=CONFIG.batch_size,
             shuffle=False,
             collate_fn=collate_fn_wrapper,
             drop_last=False,
         )
-        shap_vals = []
-        masks = []
 
-        # change this to loop through batches with tqdm
-        i = 0
-        for batch in tqdm(loader):
+        shap_values_lst: list[np.ndarray] = []
+        masks_lst: list[np.ndarray] = []
+
+        for idx, batch in enumerate(tqdm(loader, desc="SHAP batches")):
             xs, mask = to_batch_major_order(batch)
-            shap_vals.append(self.explainer.shap_values(xs))
-            masks.append(mask.cpu().numpy())
+            shap_values_lst.append(self.explainer.shap_values(xs))
+            masks_lst.append(mask.cpu().numpy())
+
             if QUICK_DEBUG:
+                logger.info("Early exit after first batch due to QUICK_DEBUG.")
                 break
-            if MEDIUM_DEBUG:
-                i += 1
-                if i >= 2:
-                    break
-        shap_vals = np.concatenate(shap_vals, axis=0)
-        shap_vals = np.squeeze(shap_vals, -1)
-        masks = np.concatenate(masks, axis=0)
-        # Broadcast mask to SHAP values without transposing to ensure matching dimensions
-        # shap_vals shape: (B, T, F), mask shape: (B, T)
-        shap_vals = shap_vals * masks[:, :, np.newaxis]
+            if MEDIUM_DEBUG and idx >= 1:
+                logger.info("Early exit after two batches due to MEDIUM_DEBUG.")
+                break
 
-        return shap_vals
+        shap_vals = np.concatenate(shap_values_lst, axis=0)
+        masks = np.concatenate(masks_lst, axis=0)
+        return apply_shap_mask(shap_vals, masks)
 
 
-def get_config(root, folder_name):
-    config_path = f"{root}/models/model_B/results/{folder_name}/xperiment.yml"
-    if not os.path.isfile(config_path):
-        raise FileNotFoundError(f"Config file does not exist: {config_path}")
-    with open(config_path, "r") as file:
-        config = yaml.safe_load(file)
-    return config
+# =============================================================================
+# 4. Evaluation helpers (predictions, threshold selection, config I/O)
+# =============================================================================
 
 
-# --------------------------------------------------------------------------
-# Helper to compute predictions, ground-truth labels, and patient IDs
-# --------------------------------------------------------------------------
-def remove_padding(patient_data, time_index):
-    non_zero_timesteps = np.where(~(patient_data == 0).all(axis=1))[0]
+def get_config(root: str | Path, folder_name: str):
+    """Load ``xperiment.yml`` for a given training run."""
 
-    if len(non_zero_timesteps) > 0:
-        last_timestep = non_zero_timesteps[-1] + 1
-        valid_time_index = time_index[:last_timestep]
-        valid_patient_data = patient_data[:last_timestep]
-    else:
-        valid_time_index, valid_patient_data = time_index, patient_data
-    return valid_time_index, valid_patient_data
+    cfg_path = (
+        Path(root) / "models" / "model_B" / "results" / folder_name / "xperiment.yml"
+    )
+    if not cfg_path.is_file():
+        raise FileNotFoundError(f"Config file does not exist: {cfg_path}")
+    with cfg_path.open("r") as file:
+        return yaml.safe_load(file)
 
 
-def get_patient_predictions(model_wrapper, data, device, pred_threshold):
-    """Return lists of patient IDs, y_true, and predicted probabilities.
+# -----------------------------------------------------------------------------
+# Predictions per patient
+# -----------------------------------------------------------------------------
 
-    The order matches the dataset order (shuffle=False).
-    """
 
-    from torch.utils.data import DataLoader  # local import to avoid polluting namespace
+def predict_per_patient(model_wrapper, data, device: torch.device, pred_threshold):
+    """Return ``patient_ids``, ``y_true``, ``y_pred``, ``y_prob`` arrays (order preserved)."""
 
     loader = DataLoader(
         data.dataset,
-        batch_size=64,
+        batch_size=CONFIG.batch_size,
         shuffle=False,
         collate_fn=collate_fn_wrapper,
         drop_last=False,
     )
 
     patient_ids = data.dataset.unique_patient_ids
+    y_trues, y_probs, y_preds = [], [], []
 
-    # patient_ids = unscale_patient_ids(patient_ids)
-    y_trues = []
-    y_probs = []
-    y_preds = []
-
-    model = model_wrapper.model  # underlying TransformerTimeSeries
+    model = model_wrapper.model  # underlying Transformer
     model.eval()
 
     with torch.no_grad():
         for xs, ys, mask in loader:
-            xs = xs.to(device)
-            ys = ys.to(device)
-            mask = mask.to(device)
-
+            xs, ys, mask = xs.to(device), ys.to(device), mask.to(device)
             logits = model(xs, mask=mask)  # (B, 1) or (B,)
             probs = torch.sigmoid(logits.squeeze(-1))
             preds = (probs >= pred_threshold).type(torch.int32).cpu().numpy()
+
             y_trues.extend(ys.cpu().numpy())
             y_preds.extend(preds)
             y_probs.extend(probs.cpu().numpy())
@@ -180,52 +305,81 @@ def get_patient_predictions(model_wrapper, data, device, pred_threshold):
     return patient_ids, np.array(y_trues), np.array(y_preds), np.array(y_probs)
 
 
-def collate_fn_wrapper(batch):
-    """Wrapper for the collate function with fixed max_len."""
-    return collate_fn(batch, max_len=400)
+# Backwards-compat alias -------------------------------------------------------
+get_patient_predictions = predict_per_patient
 
 
-def prepare_shap_values(explainer, test_xs, test_mask) -> np.ndarray:
-    """Prepare and process SHAP values with proper masking."""
-    # Calculate SHAP values
-    sh_vals = explainer.shap_values(test_xs)
+# -----------------------------------------------------------------------------
+# SHAP preparation helper
+# -----------------------------------------------------------------------------
 
-    # Convert (N, T, F, 1) → (N, T, F)
-    shap_vals = np.squeeze(sh_vals, -1)
 
-    # Convert test_mask to (B, T, 1) for broadcasting
-    test_mask_np = test_mask.cpu().numpy()[:, :, np.newaxis]  # (B, T, 1)
+def prepare_shap_values(
+    explainer, test_xs: torch.Tensor, test_mask: torch.Tensor
+) -> np.ndarray:
+    """Wrapper around ``explainer.shap_values`` that removes padding rows."""
 
-    # Apply mask - multiply SHAP values by mask (1 for real data, 0 for padding)
-    return shap_vals * test_mask_np
+    raw_vals = explainer.shap_values(test_xs)
+    return apply_shap_mask(raw_vals, test_mask.cpu().numpy())
+
+
+# -----------------------------------------------------------------------------
+# Threshold helper
+# -----------------------------------------------------------------------------
 
 
 def get_pred_threshold(model, val_data, device, config):
-    """Get the prediction threshold for the given model."""
+    """Determine optimal prediction threshold (F-beta) on the validation set."""
+
     val_loader = DataLoader(
         val_data.dataset,
-        batch_size=64,
+        batch_size=CONFIG.batch_size,
         shuffle=False,
         collate_fn=collate_fn_wrapper,
         drop_last=False,
     )
     loss_fn = get_loss_fn(config, val_data, device)
     (
-        val_loss,
-        val_acc,
-        val_prec,
-        val_rec,
-        f2_score,
-        full_y_pred,
-        full_y_true,
+        _val_loss,
+        _val_acc,
+        _val_prec,
+        _val_rec,
+        _f2_score,
+        _full_y_pred,
+        _full_y_true,
         best_thr,
     ) = validation_loop(model.model, val_loader, loss_fn, device)
     return best_thr
 
 
-# --- Visualization functions ---
+# =============================================================================
+# 5. SHAP aggregation helpers
+# =============================================================================
+
+
+def masked_average(shap_vals: np.ndarray, tol: float = 1e-12) -> np.ndarray:
+    """Mean SHAP per timestep across patients, aware of *padding* rows."""
+
+    shap_vals = copy.deepcopy(shap_vals)
+    # Boolean mask True where at least one feature differs from 0 (within tol)
+    non_pad_mask = np.any(np.abs(shap_vals) > tol, axis=2)  # (B, T)
+
+    counts = non_pad_mask.sum(axis=0)  # (T,)
+    summed = (shap_vals * non_pad_mask[..., None]).sum(axis=0)  # (T, F)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        avg = np.divide(summed, counts[:, None], where=counts[:, None] != 0)
+
+    return np.nan_to_num(avg)
+
+
+# =============================================================================
+# 6. Plotting utilities (Matplotlib / Seaborn)
+# =============================================================================
+
+
 def patient_heatmap(
-    shap_vals,
+    shap_vals: np.ndarray,
     feature_names,
     time_index,
     idx: int,
@@ -233,29 +387,17 @@ def patient_heatmap(
     y_true: float,
     y_pred: float,
     y_prob: float,
+    *,
     only_target_relevant: bool = True,
-) -> None:
-    """
-    Heat-map of SHAP values across time (x) and features (y) for one patient.
+    show: bool = True,
+):
+    """Plot a SHAP heat-map for a *single* patient and optionally return the figure."""
 
-    Args:
-        shap_vals: SHAP values array
-        feature_names: List of feature names
-        time_index: Array of time indices
-        idx: Patient index to visualize
-        patient_id: ID of the patient
-        y_true: True label
-        y_pred: Predicted label
-        y_prob: Prediction probability
-        only_target_relevant: If True, only show SHAP values relevant to target class
-    """
-    # Get and truncate patient data to non-zero timesteps
-    patient_data = copy.deepcopy(shap_vals[idx])  # shape (T, F)
-    non_zero_timesteps = np.where(~(patient_data == 0).all(axis=1))[0]
+    # Truncate padding --------------------------------------------------------
+    patient_data = copy.deepcopy(shap_vals[idx])  # (T, F)
+    valid_time_index, valid_patient_data = strip_padding(patient_data, time_index)
 
-    valid_time_index, valid_patient_data = remove_padding(patient_data, time_index)
-
-    # Filter values based on true label if requested
+    # Focus on SHAP values relevant to the *target class* ---------------------
     if only_target_relevant:
         valid_patient_data = np.clip(
             valid_patient_data,
@@ -263,101 +405,71 @@ def patient_heatmap(
             a_max=0 if y_true == 0 else None,
         )
 
-    # Identify top features for this patient
-    mean_shap_importance = np.abs(valid_patient_data).mean(axis=0)
-    top_features = np.argsort(mean_shap_importance)[-10:]
+    # Top-k most relevant features -------------------------------------------
+    mean_importance = np.abs(valid_patient_data).mean(axis=0)
+    top_features = np.argsort(mean_importance)[-CONFIG.top_k_features :]
     top_feature_names = np.array(feature_names)[top_features]
 
-    # Create heatmap
-    plt.figure(figsize=(max(10, valid_time_index.shape[0] * 0.1), 8))
+    # Plot --------------------------------------------------------------------
+    fig, ax = plt.subplots(
+        figsize=(max(10, valid_time_index.shape[0] * 0.1), 8),
+        constrained_layout=True,
+    )
     sns.heatmap(
         valid_patient_data[:, top_features].T,
         cmap="vlag",
         center=0,
         yticklabels=top_feature_names,
         xticklabels=valid_time_index,
+        ax=ax,
     )
-    plt.title(
-        f"Patient {patient_id}  |  y_true={int(y_true)}  |  y_pred={int(y_pred)}  |  y_prob={y_prob:.2f}",
+    ax.set_title(
+        (
+            f"Patient {patient_id} | y_true={int(y_true)} | "
+            f"y_pred={int(y_pred)} | y_prob={y_prob:.2f}"
+        ),
         fontsize=14,
     )
-    plt.xlabel("ICU LOS (hours)")
-    plt.ylabel("Feature")
-    plt.tight_layout()
-    plt.show()
+    ax.set_xlabel("ICU LOS (hours)")
+    ax.set_ylabel("Feature")
+
+    if show:
+        plt.show()
+    return fig
 
 
-def masked_average(shap_vals, tol: float = 1e-12):
-    """Compute average SHAP values per timestep ignoring padding rows.
-
-    Args:
-        shap_vals: np.ndarray shaped (B, T, F)
-        tol: Absolute tolerance for deciding whether a feature value is non-zero.
-
-    Returns
-    -------
-    np.ndarray
-        Array of shape (T, F) containing the mean SHAP value for each
-        timestep across patients. Timesteps that are padding for all
-        patients return 0.
-    """
-    # Boolean mask True where at least one feature differs from 0 (within tol)
-    mask = np.any(np.abs(shap_vals) > tol, axis=2)  # (B, T)
-
-    # Count how many patients are valid at each timestep
-    counts = mask.sum(axis=0)  # (T,)
-
-    # Sum SHAP values over patients, ignoring padding rows via broadcast
-    summed = (shap_vals * mask[..., None]).sum(axis=0)  # (T, F)
-
-    # Safely divide, avoiding divide-by-zero and invalid warnings
-    with np.errstate(divide="ignore", invalid="ignore"):
-        avg = np.divide(summed, counts[:, None], where=counts[:, None] != 0)
-
-    # Replace NaNs (from timesteps with zero count) with zeros for clean output
-    avg = np.nan_to_num(avg)
-
-    return avg
+# -----------------------------------------------------------------------------
+# Global heatmap (all patients of a given predicted class)
+# -----------------------------------------------------------------------------
 
 
 def global_heatmap(
-    shap_vals,
+    shap_vals: np.ndarray,
     feature_names,
     time_index,
     target: int,
     y_preds,
+    *,
     only_target_relevant: bool = True,
-    window_size: int = 30,
-) -> None:
-    """
-    Global heat-map of SHAP values across time (x) and features (y) for all patients
-    predicted as the target class.
+    window_size: int | None = None,
+    show: bool = True,
+):
+    """Global heat-map of SHAP values for *predicted* class ``target``."""
 
-    Args:
-        shap_vals: SHAP values array
-        feature_names: List of feature names
-        time_index: Array of time indices
-        target: Target class (0 or 1)
-        y_preds: Predicted labels for each patient
-        only_target_relevant: If True, only show SHAP values relevant to target class
-    """
-    # Make sure we only use indices that exist in shap_vals
+    window_size = window_size or CONFIG.window_size
+
     shap_vals = copy.deepcopy(shap_vals)
     max_idx = len(shap_vals) - 1
 
-    # Filter to patients where model predicted the target class
-    # Limit to indices that are available in shap_vals
     target_indices = np.where(y_preds == target)[0]
     target_indices = target_indices[target_indices <= max_idx]
 
     if len(target_indices) == 0:
-        print(f"No patients were predicted as class {target}")
-        return
+        logger.warning("No patients were predicted as class %s", target)
+        return None
 
-    # Extract and aggregate SHAP values for target class patients
     target_shap_vals = copy.deepcopy(shap_vals[target_indices])
 
-    # Filter values based on target class if requested
     if only_target_relevant:
         target_shap_vals = np.clip(
             target_shap_vals,
@@ -365,119 +477,107 @@ def global_heatmap(
             a_max=0 if target == 0 else None,
         )
 
-    # Aggregate across patients
-    mean_shap_vals = masked_average(target_shap_vals)  # padding-aware
-    time_importance = np.abs(mean_shap_vals).mean(axis=1)
+    mean_shap_vals = masked_average(target_shap_vals)  # (T, F)
+    time_importance = np.abs(mean_shap_vals).mean(axis=1)  # (T,)
 
-    # ------------------------------------------------------------------
-    # Select the most important contiguous window of timesteps
-    # ------------------------------------------------------------------
-
-    # Compute importance per timestep (aggregate over features via mean |SHAP|)
-    time_importance = np.abs(mean_shap_vals).mean(axis=1)  # shape (T,)
-
+    # Sliding-window selection -------------------------------------------------
     if len(time_importance) <= window_size:
         window_start, window_end = 0, len(time_importance)
     else:
-        # Use convolution to compute summed importance for every contiguous window
         window_scores = np.convolve(
             time_importance, np.ones(window_size, dtype=float), mode="valid"
         )
         window_start = int(window_scores.argmax())
         window_end = window_start + window_size
 
-    # Restrict data to the selected window
+    logger.info("Selected window: %d – %d", window_start, window_end)
+
     window_time_index = time_index[window_start:window_end]
-
-    # Slice the original per-patient SHAP tensor for the chosen window
     window_patient_shap_vals = target_shap_vals[:, window_start:window_end, :]
+    average_shap_vals = masked_average(window_patient_shap_vals)  # (T_window, F)
 
-    # Compute masked average over patients (ignores padding rows)
-    average_shap_vals = masked_average(window_patient_shap_vals)  # shape (T_window, F)
-
-    # print the window start and end
-    print(f"Window start: {window_start}, Window end: {window_end}")
-
-    # Identify top features within the selected window
     mean_importance = np.abs(average_shap_vals).mean(axis=0)
-    top_features = np.argsort(-mean_importance)[:15]
+    top_features = np.argsort(-mean_importance)[: CONFIG.top_k_features + 5]
     top_feature_names = np.array(feature_names)[top_features]
 
-    # Plot heatmap for the selected window
-    plt.figure(figsize=(max(10, len(window_time_index) * 0.1), 8))
+    # Plot --------------------------------------------------------------------
+    fig, ax = plt.subplots(
+        figsize=(max(10, len(window_time_index) * 0.1), 8),
+        constrained_layout=True,
+    )
     sns.heatmap(
         average_shap_vals[:, top_features].T,
         cmap="vlag",
         center=0,
         yticklabels=top_feature_names,
         xticklabels=window_time_index,
+        ax=ax,
     )
-    plt.title(
-        f"Global SHAP Values for Class {target} (Top {window_size}-hr Window, n={len(target_indices)})",
+    ax.set_title(
+        (
+            f"Global SHAP for class {target} – top {window_size}-hr window "
+            f"(n={len(target_indices)})"
+        ),
         fontsize=14,
     )
-    plt.xlabel("ICU LOS (hours)")
-    plt.ylabel("Feature")
-    plt.tight_layout()
-    plt.show()
+    ax.set_xlabel("ICU LOS (hours)")
+    ax.set_ylabel("Feature")
 
-    # ------------------------------------------------------------------
-    # End sliding window selection
-    # ------------------------------------------------------------------
+    if show:
+        plt.show()
+    return fig
 
 
-def global_importance_plot(shap_vals, feature_names, time_index, target, y_preds):
-    """
-    Plot the global importance of each feature for the target class.
-    """
-    # Filter to patients where model predicted the target class
+# -----------------------------------------------------------------------------
+# Global feature-importance bar plot
+# -----------------------------------------------------------------------------
+
+
+def global_importance_plot(
+    shap_vals: np.ndarray,
+    feature_names,
+    time_index,
+    target: int,
+    y_preds,
+    *,
+    show: bool = True,
+):
+    """Bar plot with *global* feature importance for predicted class ``target``."""
+
     max_idx = len(shap_vals) - 1
     target_indices = np.where(y_preds == target)[0]
     target_indices = target_indices[target_indices <= max_idx]
-    target_shap_vals = copy.deepcopy(shap_vals[target_indices])
 
     target_shap_vals = np.clip(
-        target_shap_vals,
+        copy.deepcopy(shap_vals[target_indices]),
         a_min=0 if target == 1 else None,
         a_max=0 if target == 0 else None,
     )
 
-    print(max(target_indices))
-    # print the indices of target_shap_vals
-    print(type(target_shap_vals))
-    print(target_shap_vals.shape)
+    logger.debug("Aggregating %d patient explanations", len(target_indices))
 
-    # feature averages (F)
     feature_averages = []
-    for i in range(len(target_shap_vals)):
-        valid_time_index, valid_patient_data = remove_padding(
-            target_shap_vals[i], time_index
-        )
-        average_feature_importance = valid_patient_data.mean(axis=0)
-        feature_averages.append(average_feature_importance)
+    for patient_shap in target_shap_vals:
+        _, valid_patient_data = strip_padding(patient_shap, time_index)
+        feature_averages.append(valid_patient_data.mean(axis=0))
 
     global_feature_importance = np.array(feature_averages).mean(axis=0)
 
-    # select top 10 features in ascending order
-    top_features = np.argsort(np.abs(global_feature_importance))[-10:]
+    top_features = np.argsort(np.abs(global_feature_importance))[
+        -CONFIG.top_k_features :
+    ]
     top_feature_names = np.array(feature_names)[top_features]
 
-    # plot the top 10 features
-    plt.figure(figsize=(10, 8))
+    fig, ax = plt.subplots(figsize=(10, 8), constrained_layout=True)
 
-    # Choose a color based on target
-    if target == 1:
-        cmap = cm.get_cmap("coolwarm")  # red to blue, red is for high values
-        color = cmap(0.9)  # closer to red
-    else:
-        cmap = cm.get_cmap("coolwarm")
-        color = cmap(0.1)  # closer to blue
+    cmap = cm.get_cmap("coolwarm")
+    color = cmap(0.9) if target == 1 else cmap(0.1)
 
-    # Plot the bar chart with color
-    plt.barh(top_feature_names, global_feature_importance[top_features], color=color)
+    ax.barh(top_feature_names, global_feature_importance[top_features], color=color)
+    ax.set_title(f"Global Feature Importance for Class {target}")
+    ax.set_xlabel("Importance")
+    ax.set_ylabel("Feature")
 
-    plt.title(f"Global Feature Importance for Class {target}")
-    plt.xlabel("Importance")
-    plt.ylabel("Feature")
-    plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
+    return fig
