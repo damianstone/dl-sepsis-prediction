@@ -59,7 +59,8 @@ class TransformerTimeSeries(nn.Module):
         1. input: multiple time steps for all patients in the batch
         2. the transformer processes the entire sequence of time steps for each patient at one, not one time step at a time
         3. the positional encoder ensures the model know the order of records
-        4. the model return one prediction per patient
+        4. attention pooling learns which time steps matter most and summarizes the sequence into a single embedding
+        5. the model return one prediction per patient
         """
         # x: (sequence_length, batch_size, feature_dim)
         x = self.embedding(x)  # (seq_len, batch_size, d_model)
@@ -70,16 +71,15 @@ class TransformerTimeSeries(nn.Module):
 
         x = self.encoder(x, src_key_padding_mask=mask)
 
-        # gives more weight to later measurements
-        seq_len = x.size(0)
-        temporal_bias = torch.exp(torch.arange(seq_len, device=x.device) / seq_len)
-        # Shape: (seq_len, 1, 1)
-        temporal_bias = temporal_bias.unsqueeze(-1).unsqueeze(-1)
+        # # gives more weight to later measurements
+        # seq_len = x.size(0)
+        # temporal_bias = torch.exp(torch.arange(seq_len, device=x.device) / seq_len)
+        # # Shape: (seq_len, 1, 1)
+        # temporal_bias = temporal_bias.unsqueeze(-1).unsqueeze(-1)
 
         # Attention-weighted pooling
         attention_weights = torch.softmax(self.attention(x), dim=0)
-        x = torch.sum(x * attention_weights, dim=0)  # Weighted sum across time
-
+        x = torch.sum(x * attention_weights, dim=0)
         return self.linear_layer(x).squeeze(-1)
 
 
