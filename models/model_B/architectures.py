@@ -46,7 +46,7 @@ class PositionalEncoding(nn.Module):
         # we use sine and cosine to represent the time and position of each patient event (record)
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
+        pe = pe.unsqueeze(1)
         self.register_buffer("pe", pe)
 
     def forward(self, x):
