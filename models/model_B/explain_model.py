@@ -238,7 +238,7 @@ def patient_heatmap(
 
     # Identify top features for this patient
     mean_shap_importance = np.abs(valid_patient_data).mean(axis=0)
-    top_features = np.argsort(mean_shap_importance)[-10:]
+    top_features = np.argsort(-mean_shap_importance)[:10]
     top_feature_names = np.array(feature_names)[top_features]
 
     # Create heatmap
@@ -315,30 +315,54 @@ def global_heatmap(
     # Aggregate across patients
     mean_shap_vals = valid_shap_vals.mean(axis=0)  # (T, F)
 
-    # Identify top features globally
-    mean_importance = np.abs(mean_shap_vals).mean(axis=0)
-    top_features = np.argsort(mean_importance)[-15:]  # Show top 15 for global view
+    # ------------------------------------------------------------------
+    # Select the most important contiguous window of timesteps
+    # ------------------------------------------------------------------
+    window_size = 30  # number of timesteps in the window
+
+    # Compute importance per timestep (aggregate over features via mean |SHAP|)
+    time_importance = np.abs(mean_shap_vals).mean(axis=1)  # shape (T,)
+
+    if len(time_importance) <= window_size:
+        window_start, window_end = 0, len(time_importance)
+    else:
+        # Use convolution to compute summed importance for every contiguous window
+        window_scores = np.convolve(
+            time_importance, np.ones(window_size, dtype=float), mode="valid"
+        )
+        window_start = int(window_scores.argmax())
+        window_end = window_start + window_size
+
+    # Restrict data to the selected window
+    window_time_index = valid_time_index[window_start:window_end]
+    window_shap_vals = mean_shap_vals[window_start:window_end, :]
+
+    # Identify top features within the selected window
+    mean_importance = np.abs(window_shap_vals).mean(axis=0)
+    top_features = np.argsort(-mean_importance)[:10]
     top_feature_names = np.array(feature_names)[top_features]
 
-    # Create heatmap with top features
-    plt.figure(figsize=(max(10, valid_time_index.shape[0] * 0.1), 8))
+    # Plot heatmap for the selected window
+    plt.figure(figsize=(max(10, len(window_time_index) * 0.1), 8))
     sns.heatmap(
-        mean_shap_vals[:, top_features].T,
+        window_shap_vals[:, top_features].T,
         cmap="vlag",
         center=0,
         yticklabels=top_feature_names,
-        xticklabels=valid_time_index[
-            :: max(1, len(valid_time_index) // 20)
-        ],  # Show fewer ticks
+        xticklabels=window_time_index,
     )
     plt.title(
-        f"Global SHAP Values for Class {target} Predictions (n={len(target_indices)})",
+        f"Global SHAP Values for Class {target} (Top {window_size}-hr Window, n={len(target_indices)})",
         fontsize=14,
     )
     plt.xlabel("ICU LOS (hours)")
     plt.ylabel("Feature")
     plt.tight_layout()
     plt.show()
+
+    # ------------------------------------------------------------------
+    # End sliding window selection
+    # ------------------------------------------------------------------
 
 
 def plot_global_feature_importance(abs_vals, feature_names) -> None:
