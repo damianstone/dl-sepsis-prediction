@@ -13,9 +13,11 @@ from final_pipeline import ModelWrapper, get_data, get_loss_fn, set_seeds, setup
 from full_pipeline import find_project_root
 from torch import nn
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 from training import validation_loop
 
 SEED = 42
+QUICK_DEBUG = True
 
 
 def to_batch_major_order(batch) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -81,17 +83,20 @@ class ShapModel(nn.Module):
     def get_shap_values(self, data):
         loader = DataLoader(
             data.dataset,
-            batch_size=64,
+            batch_size=2,
             shuffle=False,
             collate_fn=collate_fn_wrapper,
             drop_last=False,
         )
         shap_vals = []
 
-        batch = next(iter(loader))
         # change this to loop through batches with tqdm
-        xs, mask = to_batch_major_order(batch)
-        shap_vals.append(self.explainer.shap_values(xs))
+
+        for batch in tqdm(loader):
+            xs, mask = to_batch_major_order(batch)
+            shap_vals.append(self.explainer.shap_values(xs))
+            if QUICK_DEBUG:
+                break
 
         shap_vals = np.concatenate(shap_vals, axis=0)
         shap_vals = np.squeeze(shap_vals, -1)
@@ -133,7 +138,10 @@ def get_patient_predictions(model_wrapper, data, device, pred_threshold):
     )
 
     patient_ids = data.dataset.unique_patient_ids
+
+    # patient_ids = unscale_patient_ids(patient_ids)
     y_trues = []
+    y_probs = []
     y_preds = []
 
     model = model_wrapper.model  # underlying TransformerTimeSeries
@@ -150,8 +158,9 @@ def get_patient_predictions(model_wrapper, data, device, pred_threshold):
             preds = (probs >= pred_threshold).type(torch.int32).cpu().numpy()
             y_trues.extend(ys.cpu().numpy())
             y_preds.extend(preds)
+            y_probs.extend(probs.cpu().numpy())
 
-    return patient_ids, np.array(y_trues), np.array(y_preds)
+    return patient_ids, np.array(y_trues), np.array(y_preds), np.array(y_probs)
 
 
 def collate_fn_wrapper(batch):
@@ -183,6 +192,7 @@ def patient_heatmap(
     patient_id: str,
     y_true: float,
     y_pred: float,
+    y_prob: float,
 ) -> None:
     """
     Heat-map of SHAP values across time (x) and features (y) for one patient.
@@ -194,6 +204,10 @@ def patient_heatmap(
         idx: Patient index to visualize
         top_10_features: List of top 10 features to visualize
     """
+    # find the 10 most important features for this patient
+    shap_vals_abs = np.abs(shap_vals)
+    top_10_features = np.argsort(shap_vals_abs.mean(axis=(0, 1)))[-10:]
+    shap_vals = shap_vals[:, :, top_10_features]
 
     # truncate the time dimension if there is no data for the last hours
     # check which hours have no data
@@ -210,7 +224,6 @@ def patient_heatmap(
         time_index = time_index[~patient_no_data]
         shap_vals = shap_vals[:, ~patient_no_data]
 
-    # Dynamically scale the figure width so the heat-map fills the canvas
     n_timesteps = shap_vals.shape[1]
     width = max(6, n_timesteps * 0.2)  # 0.2 inch per timestep, min width 6
     plt.figure(figsize=(width, 6))
@@ -222,7 +235,7 @@ def patient_heatmap(
         xticklabels=time_index,  # show every 10-hour tick
     )
     plt.title(
-        f"Patient {patient_id}  |  y_true={int(y_true)}  |  y_pred={y_pred:.2f}",
+        f"Patient {patient_id}  |  y_true={int(y_true)}  |  y_pred={int(y_pred)}  |  y_prob={y_prob:.2f}",
         fontsize=14,
     )
     plt.xlabel("ICU LOS (hours)")
@@ -332,7 +345,6 @@ def shap_pipeline():
     config = get_config(project_root, results_name)
 
     device = setup_device()
-
     train_data = get_data(config, "train")
     val_data = get_data(config, "val")
 
@@ -343,12 +355,16 @@ def shap_pipeline():
     model.load_saved_weights()
 
     shap_model = ShapModel(model.model, train_data, device, pad_value=0.0)
-    shap_vals = shap_model.get_shap_values(test_data)
+    shap_vals = shap_model.get_shap_values(test_data)  #  (64, 400, 107)
+    # print shape of shap_vals
+    print("shap_vals shape: ", shap_vals.shape)
+
+    # Get feature names early so they can be used throughout
+    feature_names = train_data.X.columns.tolist()  # list of feature names
 
     pred_threshold = get_pred_threshold(model, val_data, device, config)
     print(f"Prediction threshold: {pred_threshold}")
 
-    feature_names = train_data.X.columns.tolist()  # list of feature names
     time_index = np.arange(shap_vals.shape[1])
 
     abs_vals = np.abs(shap_vals)
@@ -357,11 +373,11 @@ def shap_pipeline():
     top_10_feature_names = np.array(feature_names)[top_10_features]
     top_10_abs_vals = np.abs(top_10_shap_vals)
 
-    patient_ids, y_trues, y_preds = get_patient_predictions(
+    patient_ids, y_trues, y_preds, y_probs = get_patient_predictions(
         model, test_data, device, pred_threshold
     )
-    for idx, (patient_id, y_true, y_pred) in enumerate(
-        zip(patient_ids, y_trues, y_preds)
+    for idx, (patient_id, y_true, y_pred, y_prob) in enumerate(
+        zip(patient_ids, y_trues, y_preds, y_probs)
     ):
         patient_heatmap(
             top_10_shap_vals,
@@ -371,7 +387,9 @@ def shap_pipeline():
             patient_id,
             y_true,
             y_pred,
+            y_prob,
         )
+
     plot_global_feature_importance(top_10_abs_vals, top_10_feature_names)
     plot_temporal_importance(abs_vals, time_index)
     beeswarm_collapsed_over_time(shap_vals, feature_names)
