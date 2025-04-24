@@ -548,11 +548,12 @@ def global_importance_plot(
     target_indices = np.where(y_preds == target)[0]
     target_indices = target_indices[target_indices <= max_idx]
 
-    target_shap_vals = np.clip(
-        copy.deepcopy(shap_vals[target_indices]),
-        a_min=0 if target == 1 else None,
-        a_max=0 if target == 0 else None,
-    )
+    # target_shap_vals = np.clip(
+    #     copy.deepcopy(shap_vals[target_indices]),
+    #     a_min=0 if target == 1 else None,
+    #     a_max=0 if target == 0 else None,
+    # )
+    target_shap_vals = copy.deepcopy(shap_vals)
 
     logger.debug("Aggregating %d patient explanations", len(target_indices))
 
