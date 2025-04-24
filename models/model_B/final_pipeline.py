@@ -266,6 +266,14 @@ class ModelWrapper:
             feature_names=self.train_data.X.columns.tolist(),
         )
 
+    def load_saved_weights(self):
+        model_path = f"{project_root}/models/model_B/saved/{self.model_name}.pth"
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found at {model_path}")
+        self.model.load_state_dict(
+            torch.load(model_path, map_location=self.device), strict=False
+        )
+
 
 # ============================================================================
 # DataWrapper Class
