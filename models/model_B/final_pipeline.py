@@ -404,7 +404,7 @@ def pipeline():
     test_data = get_data(base_config, "test")
     no_sampling_train_data = get_data(base_config, "train")
     models = []
-    for dataset_type in ["downsampled"]:
+    for dataset_type in ["undersampled"]:
 
         configs = [
             get_small_model_config(dataset_type),
