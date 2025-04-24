@@ -452,6 +452,7 @@ def global_heatmap(
     time_index,
     target: int,
     y_preds,
+    top_features: list[int] | np.ndarray | None = None,
     *,
     only_target_relevant: bool = True,
     window_size: int | None = None,
@@ -483,24 +484,20 @@ def global_heatmap(
     mean_shap_vals = masked_average(target_shap_vals)  # (T, F)
     time_importance = np.abs(mean_shap_vals).mean(axis=1)  # (T,)
 
-    # Sliding-window selection -------------------------------------------------
-    if len(time_importance) <= window_size:
-        window_start, window_end = 0, len(time_importance)
-    else:
-        window_scores = np.convolve(
-            time_importance, np.ones(window_size, dtype=float), mode="valid"
-        )
-        window_start = int(window_scores.argmax())
-        window_end = window_start + window_size
+    # ------------------------------------------------------------------
+    # Simpler behaviour: always show the *first* ``window_size`` timesteps.
+    # ------------------------------------------------------------------
+    window_start = 0
+    window_end = int(min(window_size, len(time_importance)))
 
-    logger.info("Selected window: %d – %d", window_start, window_end)
+    logger.info(
+        "Using first %d timesteps (0 – %d)", window_end - window_start, window_end
+    )
 
     window_time_index = time_index[window_start:window_end]
     window_patient_shap_vals = target_shap_vals[:, window_start:window_end, :]
     average_shap_vals = masked_average(window_patient_shap_vals)  # (T_window, F)
 
-    mean_importance = np.abs(average_shap_vals).mean(axis=0)
-    top_features = np.argsort(-mean_importance)[: CONFIG.top_k_features + 5]
     top_feature_names = np.array(feature_names)[top_features]
 
     # Plot --------------------------------------------------------------------
@@ -583,4 +580,5 @@ def global_importance_plot(
 
     if show:
         plt.show()
-    return fig
+
+    return fig, top_features[::-1]
