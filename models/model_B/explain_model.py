@@ -9,10 +9,11 @@ import shap
 import torch
 import yaml
 from custom_dataset import collate_fn
-from final_pipeline import ModelWrapper, get_data, set_seeds, setup_device
+from final_pipeline import ModelWrapper, get_data, get_loss_fn, set_seeds, setup_device
 from full_pipeline import find_project_root
 from torch import nn
 from torch.utils.data import DataLoader
+from training import validation_loop
 
 SEED = 42
 
@@ -110,6 +111,49 @@ def get_config(root, folder_name):
     return config
 
 
+# --------------------------------------------------------------------------
+# Helper to compute predictions, ground-truth labels, and patient IDs
+# --------------------------------------------------------------------------
+
+
+def get_patient_predictions(model_wrapper, data, device, pred_threshold):
+    """Return lists of patient IDs, y_true, and predicted probabilities.
+
+    The order matches the dataset order (shuffle=False).
+    """
+
+    from torch.utils.data import DataLoader  # local import to avoid polluting namespace
+
+    loader = DataLoader(
+        data.dataset,
+        batch_size=64,
+        shuffle=False,
+        collate_fn=collate_fn_wrapper,
+        drop_last=False,
+    )
+
+    patient_ids = data.dataset.unique_patient_ids
+    y_trues = []
+    y_preds = []
+
+    model = model_wrapper.model  # underlying TransformerTimeSeries
+    model.eval()
+
+    with torch.no_grad():
+        for xs, ys, mask in loader:
+            xs = xs.to(device)
+            ys = ys.to(device)
+            mask = mask.to(device)
+
+            logits = model(xs, mask=mask)  # (B, 1) or (B,)
+            probs = torch.sigmoid(logits.squeeze(-1))
+            preds = (probs >= pred_threshold).type(torch.int32).cpu().numpy()
+            y_trues.extend(ys.cpu().numpy())
+            y_preds.extend(preds)
+
+    return patient_ids, np.array(y_trues), np.array(y_preds)
+
+
 def collate_fn_wrapper(batch):
     """Wrapper for the collate function with fixed max_len."""
     return collate_fn(batch, max_len=400)
@@ -131,7 +175,15 @@ def prepare_shap_values(explainer, test_xs, test_mask) -> np.ndarray:
 
 
 # --- Visualization functions ---
-def patient_heatmap(shap_vals, feature_names, time_index, idx: int) -> None:
+def patient_heatmap(
+    shap_vals,
+    feature_names,
+    time_index,
+    idx: int,
+    patient_id: str,
+    y_true: float,
+    y_pred: float,
+) -> None:
     """
     Heat-map of SHAP values across time (x) and features (y) for one patient.
 
@@ -148,16 +200,13 @@ def patient_heatmap(shap_vals, feature_names, time_index, idx: int) -> None:
     # Identify hours where SHAP values are zero for every patient **and** every feature
     # shap_vals has shape (N, T, F) -> we want a 1-D boolean mask over T
     no_data_hours = (shap_vals == 0).all(axis=(0, 2))  # shape (T,)
-    print("no_data_hours: ", no_data_hours)
     if no_data_hours.any():
-        print("Truncating universally empty time-steps", no_data_hours)
         time_index = time_index[~no_data_hours]
         shap_vals = shap_vals[:, ~no_data_hours]
 
     # Further crop timesteps that are blank for the selected patient only
     patient_no_data = (shap_vals[idx] == 0).all(axis=1)  # shape (T,)
     if patient_no_data.any():
-        print("Truncating patient-specific empty time-steps", patient_no_data)
         time_index = time_index[~patient_no_data]
         shap_vals = shap_vals[:, ~patient_no_data]
 
@@ -172,7 +221,10 @@ def patient_heatmap(shap_vals, feature_names, time_index, idx: int) -> None:
         yticklabels=feature_names,
         xticklabels=time_index,  # show every 10-hour tick
     )
-    plt.title(f"SHAP values for patient {idx}")
+    plt.title(
+        f"Patient {patient_id}  |  y_true={int(y_true)}  |  y_pred={y_pred:.2f}",
+        fontsize=14,
+    )
     plt.xlabel("ICU LOS (hours)")
     plt.ylabel("Feature")
     plt.tight_layout()
@@ -245,6 +297,29 @@ def beeswarm_collapsed_over_time(shap_vals, feature_names) -> None:
     )
 
 
+def get_pred_threshold(model, val_data, device, config):
+    """Get the prediction threshold for the given model."""
+    val_loader = DataLoader(
+        val_data.dataset,
+        batch_size=64,
+        shuffle=False,
+        collate_fn=collate_fn_wrapper,
+        drop_last=False,
+    )
+    loss_fn = get_loss_fn(config, val_data, device)
+    (
+        val_loss,
+        val_acc,
+        val_prec,
+        val_rec,
+        f2_score,
+        full_y_pred,
+        full_y_true,
+        best_thr,
+    ) = validation_loop(model.model, val_loader, loss_fn, device)
+    return best_thr
+
+
 def shap_pipeline():
     """Main function to run the SHAP analysis pipeline."""
 
@@ -255,11 +330,12 @@ def shap_pipeline():
         raise ValueError("No results name provided")
 
     config = get_config(project_root, results_name)
-    print(config)
 
     device = setup_device()
 
     train_data = get_data(config, "train")
+    val_data = get_data(config, "val")
+
     test_data = get_data(config, "test")
     in_dim = train_data.X.shape[1]
 
@@ -268,6 +344,9 @@ def shap_pipeline():
 
     shap_model = ShapModel(model.model, train_data, device, pad_value=0.0)
     shap_vals = shap_model.get_shap_values(test_data)
+
+    pred_threshold = get_pred_threshold(model, val_data, device, config)
+    print(f"Prediction threshold: {pred_threshold}")
 
     feature_names = train_data.X.columns.tolist()  # list of feature names
     time_index = np.arange(shap_vals.shape[1])
@@ -278,7 +357,21 @@ def shap_pipeline():
     top_10_feature_names = np.array(feature_names)[top_10_features]
     top_10_abs_vals = np.abs(top_10_shap_vals)
 
-    patient_heatmap(top_10_shap_vals, top_10_feature_names, time_index, 0)
+    patient_ids, y_trues, y_preds = get_patient_predictions(
+        model, test_data, device, pred_threshold
+    )
+    for idx, (patient_id, y_true, y_pred) in enumerate(
+        zip(patient_ids, y_trues, y_preds)
+    ):
+        patient_heatmap(
+            top_10_shap_vals,
+            top_10_feature_names,
+            time_index,
+            idx,
+            patient_id,
+            y_true,
+            y_pred,
+        )
     plot_global_feature_importance(top_10_abs_vals, top_10_feature_names)
     plot_temporal_importance(abs_vals, time_index)
     beeswarm_collapsed_over_time(shap_vals, feature_names)

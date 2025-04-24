@@ -41,6 +41,9 @@ class SepsisPatientDataset(Dataset):
         for pid in patient_dict:
             patient_dict[pid].sort(key=lambda x: x[0][self.time_index])
 
+        # Preserve ordering in both the grouped records and a parallel list of IDs
+        self.unique_patient_ids = list(patient_dict.keys())
+
         return list(patient_dict.values())
 
     def __len__(self):
