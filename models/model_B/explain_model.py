@@ -1,3 +1,4 @@
+import copy
 import os
 import sys
 from typing import Tuple
@@ -83,7 +84,7 @@ class ShapModel(nn.Module):
     def get_shap_values(self, data):
         loader = DataLoader(
             data.dataset,
-            batch_size=2,
+            batch_size=10,
             shuffle=False,
             collate_fn=collate_fn_wrapper,
             drop_last=False,
@@ -193,6 +194,7 @@ def patient_heatmap(
     y_true: float,
     y_pred: float,
     y_prob: float,
+    only_target_relevant: bool = True,
 ) -> None:
     """
     Heat-map of SHAP values across time (x) and features (y) for one patient.
@@ -202,37 +204,44 @@ def patient_heatmap(
         feature_names: List of feature names
         time_index: Array of time indices
         idx: Patient index to visualize
-        top_10_features: List of top 10 features to visualize
+        patient_id: ID of the patient
+        y_true: True label
+        y_pred: Predicted label
+        y_prob: Prediction probability
+        only_target_relevant: If True, only show SHAP values relevant to target class
     """
-    # find the 10 most important features for this patient
-    shap_vals_abs = np.abs(shap_vals)
-    top_10_features = np.argsort(shap_vals_abs.mean(axis=(0, 1)))[-10:]
-    shap_vals = shap_vals[:, :, top_10_features]
+    # Get and truncate patient data to non-zero timesteps
+    patient_data = copy.deepcopy(shap_vals[idx])  # shape (T, F)
+    non_zero_timesteps = np.where(~(patient_data == 0).all(axis=1))[0]
 
-    # truncate the time dimension if there is no data for the last hours
-    # check which hours have no data
-    # Identify hours where SHAP values are zero for every patient **and** every feature
-    # shap_vals has shape (N, T, F) -> we want a 1-D boolean mask over T
-    no_data_hours = (shap_vals == 0).all(axis=(0, 2))  # shape (T,)
-    if no_data_hours.any():
-        time_index = time_index[~no_data_hours]
-        shap_vals = shap_vals[:, ~no_data_hours]
+    if len(non_zero_timesteps) > 0:
+        last_timestep = non_zero_timesteps[-1] + 1
+        valid_time_index = time_index[:last_timestep]
+        valid_patient_data = patient_data[:last_timestep]
+    else:
+        valid_time_index, valid_patient_data = time_index, patient_data
 
-    # Further crop timesteps that are blank for the selected patient only
-    patient_no_data = (shap_vals[idx] == 0).all(axis=1)  # shape (T,)
-    if patient_no_data.any():
-        time_index = time_index[~patient_no_data]
-        shap_vals = shap_vals[:, ~patient_no_data]
+    # Filter values based on true label if requested
+    if only_target_relevant:
+        valid_patient_data = np.clip(
+            valid_patient_data,
+            a_min=0 if y_true == 1 else None,
+            a_max=0 if y_true == 0 else None,
+        )
 
-    n_timesteps = shap_vals.shape[1]
-    width = max(6, n_timesteps * 0.2)  # 0.2 inch per timestep, min width 6
-    plt.figure(figsize=(width, 6))
+    # Identify top features for this patient
+    mean_shap_importance = np.abs(valid_patient_data).mean(axis=0)
+    top_features = np.argsort(mean_shap_importance)[-10:]
+    top_feature_names = np.array(feature_names)[top_features]
+
+    # Create heatmap
+    plt.figure(figsize=(max(6, valid_time_index.shape[0] * 0.2), 6))
     sns.heatmap(
-        shap_vals[idx].T,  # (F, T)
+        valid_patient_data[:, top_features].T,
         cmap="vlag",
         center=0,
-        yticklabels=feature_names,
-        xticklabels=time_index,  # show every 10-hour tick
+        yticklabels=top_feature_names,
+        xticklabels=valid_time_index,
     )
     plt.title(
         f"Patient {patient_id}  |  y_true={int(y_true)}  |  y_pred={int(y_pred)}  |  y_prob={y_prob:.2f}",
@@ -355,7 +364,7 @@ def shap_pipeline():
     model.load_saved_weights()
 
     shap_model = ShapModel(model.model, train_data, device, pad_value=0.0)
-    shap_vals = shap_model.get_shap_values(test_data)  #  (64, 400, 107)
+    shap_vals = shap_model.get_shap_values(test_data)  # (64, 400, 107)
     # print shape of shap_vals
     print("shap_vals shape: ", shap_vals.shape)
 
@@ -367,11 +376,11 @@ def shap_pipeline():
 
     time_index = np.arange(shap_vals.shape[1])
 
+    # Calculate global importance for other visualizations but not for patient heatmaps
     abs_vals = np.abs(shap_vals)
     top_10_features = np.argsort(abs_vals.mean(axis=(0, 1)))[-10:]
-    top_10_shap_vals = shap_vals[:, :, top_10_features]
     top_10_feature_names = np.array(feature_names)[top_10_features]
-    top_10_abs_vals = np.abs(top_10_shap_vals)
+    top_10_abs_vals = np.abs(shap_vals[:, :, top_10_features])
 
     patient_ids, y_trues, y_preds, y_probs = get_patient_predictions(
         model, test_data, device, pred_threshold
@@ -380,8 +389,8 @@ def shap_pipeline():
         zip(patient_ids, y_trues, y_preds, y_probs)
     ):
         patient_heatmap(
-            top_10_shap_vals,
-            top_10_feature_names,
+            shap_vals,  # Pass full SHAP values array
+            feature_names,  # Pass all feature names
             time_index,
             idx,
             patient_id,
@@ -389,6 +398,8 @@ def shap_pipeline():
             y_pred,
             y_prob,
         )
+        if QUICK_DEBUG:
+            break  # Only process one patient in debug mode
 
     plot_global_feature_importance(top_10_abs_vals, top_10_feature_names)
     plot_temporal_importance(abs_vals, time_index)
