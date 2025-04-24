@@ -188,6 +188,9 @@ class ShapModel(nn.Module):
         self.base = base_model
         self.pad_value = pad_value if pad_value is not None else CONFIG.pad_value
 
+        # Ensure deterministic behaviour (e.g., disable dropout)
+        self.base.eval()
+
         # Background batch used by GradientExplainer --------------------------
         bg_loader = DataLoader(
             background_data.dataset,
