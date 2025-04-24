@@ -170,7 +170,7 @@ def patient_heatmap(shap_vals, feature_names, time_index, idx: int) -> None:
         cmap="vlag",
         center=0,
         yticklabels=feature_names,
-        xticklabels=time_index[::10],  # show every 10-hour tick
+        xticklabels=time_index,  # show every 10-hour tick
     )
     plt.title(f"SHAP values for patient {idx}")
     plt.xlabel("ICU LOS (hours)")
@@ -262,17 +262,6 @@ def shap_pipeline():
     train_data = get_data(config, "train")
     test_data = get_data(config, "test")
     in_dim = train_data.X.shape[1]
-    # max_len = 0
-    # i = 0
-    # import tqdm
-
-    # # loop through batches
-    # for xs, ys, mask in tqdm.tqdm(train_data.loader):
-    #     max_len = max(max_len, xs.shape[0])
-    #     i += 1
-    #     print(f"Batch {i} of {len(train_data.loader)}")
-    # print(f"Max length: {max_len}")
-    # return
 
     model = ModelWrapper(config, device, in_dim)
     model.load_saved_weights()
@@ -287,9 +276,10 @@ def shap_pipeline():
     top_10_features = np.argsort(abs_vals.mean(axis=(0, 1)))[-10:]
     top_10_shap_vals = shap_vals[:, :, top_10_features]
     top_10_feature_names = np.array(feature_names)[top_10_features]
+    top_10_abs_vals = np.abs(top_10_shap_vals)
 
     patient_heatmap(top_10_shap_vals, top_10_feature_names, time_index, 0)
-    plot_global_feature_importance(abs_vals, feature_names)
+    plot_global_feature_importance(top_10_abs_vals, top_10_feature_names)
     plot_temporal_importance(abs_vals, time_index)
     beeswarm_collapsed_over_time(shap_vals, feature_names)
 
