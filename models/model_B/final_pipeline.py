@@ -40,6 +40,8 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 from final_dataset_scripts.dataset_loader import (
+    load_shap_background,
+    load_shap_eval,
     load_test_data,
     load_train_data,
     load_val_data,
@@ -266,6 +268,14 @@ class ModelWrapper:
             feature_names=self.train_data.X.columns.tolist(),
         )
 
+    def load_saved_weights(self):
+        model_path = f"{project_root}/models/model_B/saved/{self.model_name}.pth"
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found at {model_path}")
+        self.model.load_state_dict(
+            torch.load(model_path, map_location=self.device), strict=False
+        )
+
 
 # ============================================================================
 # DataWrapper Class
@@ -275,18 +285,24 @@ class ModelWrapper:
 class DataWrapper:
     """Wrapper for dataset components including features, labels, patient IDs, and DataLoader."""
 
-    def __init__(self, X, y, patient_ids, dataset, loader):
+    def __init__(self, X, y, patient_ids, dataset, loader, df):
         self.X = X
         self.y = y
         self.patient_ids = patient_ids
         self.dataset = dataset
         self.loader = loader
+        self.df = df
 
     @staticmethod
     def from_map(map):
         """Create a DataWrapper instance from a mapping containing X, y, patient_ids, dataset, and loader."""
         return DataWrapper(
-            map["X"], map["y"], map["patient_ids"], map["dataset"], map["loader"]
+            map["X"],
+            map["y"],
+            map["patient_ids"],
+            map["dataset"],
+            map["loader"],
+            map["df"],
         )
 
 
@@ -311,6 +327,10 @@ def get_data(config, type):
         data = load_val_data()
     elif type == "test":
         data = load_test_data()
+    elif type == "shap_background":
+        data = load_shap_background()
+    elif type == "shap_eval":
+        data = load_shap_eval()
     else:
         raise ValueError(f"Unknown data type: {type}")
 
@@ -336,6 +356,7 @@ def get_data(config, type):
             "patient_ids": data["patient_ids"],
             "dataset": dataset,
             "loader": loader,
+            "df": data["df"],
         }
     )
 

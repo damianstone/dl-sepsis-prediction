@@ -41,6 +41,9 @@ class SepsisPatientDataset(Dataset):
         for pid in patient_dict:
             patient_dict[pid].sort(key=lambda x: x[0][self.time_index])
 
+        # Preserve ordering in both the grouped records and a parallel list of IDs
+        self.unique_patient_ids = list(patient_dict.keys())
+
         return list(patient_dict.values())
 
     def __len__(self):
@@ -70,7 +73,7 @@ class SepsisPatientDataset(Dataset):
         return X, y.max()
 
 
-def collate_fn(batch):
+def collate_fn(batch, max_len=None):
     """
     makes sequences the same length by padding shorter ones with zeros and
     creates masks to tell the transformer which values are real data versus padding.
@@ -115,8 +118,8 @@ def collate_fn(batch):
     """
     X_batch = [x for x, y in batch]
     y_batch = torch.stack([y for _, y in batch])
-
-    max_len = max([x.shape[0] for x in X_batch])
+    if max_len is None:
+        max_len = max([x.shape[0] for x in X_batch])
     feature_dim = X_batch[0].shape[1]
 
     padded_X = torch.zeros(len(X_batch), max_len, feature_dim)

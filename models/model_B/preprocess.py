@@ -59,7 +59,7 @@ def load_processed_data(root, file_name):
     return data_splits
 
 
-def over_under_sample(df, method="oversample", minority_ratio=0.3):
+def over_under_sample(df, method="oversample", minority_ratio=0.3, random_state=42):
     """
     Balances the dataset at the patient level.
 
@@ -94,7 +94,7 @@ def over_under_sample(df, method="oversample", minority_ratio=0.3):
             minority_patients,
             replace=True,
             n_samples=n_desired_minority,
-            random_state=42,
+            random_state=random_state,
         )
         balanced_patient_df = pd.concat([majority_patients, minority_upsampled])
     elif method == "undersample":
@@ -106,7 +106,7 @@ def over_under_sample(df, method="oversample", minority_ratio=0.3):
             majority_patients,
             replace=False,
             n_samples=n_desired_majority,
-            random_state=42,
+            random_state=random_state,
         )
         balanced_patient_df = pd.concat([majority_downsampled, minority_patients])
     else:
