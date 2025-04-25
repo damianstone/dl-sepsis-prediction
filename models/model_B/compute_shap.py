@@ -9,6 +9,12 @@ This script computes SHAP (SHapley Additive exPlanations) values for model inter
 
 SHAP values help explain model predictions by showing the contribution of each feature
 to the prediction for individual patients.
+
+Usage:
+    python compute_shap.py <results_name>
+
+Example:
+    python compute_shap.py medium_model_no_sampling
 """
 
 # ============================================================================
@@ -27,6 +33,7 @@ BACKGROUND_SIZE = 256
 import copy
 import json
 import os
+import sys
 
 from explain_model_helpers import ShapModel, get_config
 from final_pipeline import ModelWrapper, get_data, setup_device
@@ -36,13 +43,20 @@ from preprocess import over_under_sample
 # ============================================================================
 # Setup and Initialization
 # ============================================================================
+# Check if results_name was provided as command line argument
+if len(sys.argv) < 2:
+    print("Error: Please provide results_name as command line argument")
+    print("Usage: python compute_shap.py <results_name>")
+    sys.exit(1)
+
+results_name = sys.argv[1]
+print(f"Computing SHAP values for model: {results_name}")
+
 project_root = find_project_root()
 data_output_folder = f"{project_root}/dataset/{OUTPUT_FOLDER_NAME}"
 if not os.path.exists(data_output_folder):
     os.makedirs(data_output_folder)
 
-project_root = find_project_root()
-results_name = "medium_model_no_sampling"
 config = get_config(project_root, results_name)
 
 device = setup_device()
@@ -54,6 +68,7 @@ in_dim = train_data.X.shape[1]
 # ============================================================================
 # Background Data Preparation
 # ============================================================================
+print("Preparing background data...")
 background_df = copy.deepcopy(train_data.df)
 
 background_patient_df = (
@@ -77,10 +92,14 @@ background_df = background_df[
     | background_df["patient_id"].isin(sampled_pos_patients["patient_id"])
 ]
 
-print(background_df.shape)
-print(background_df.groupby("patient_id")["SepsisLabel"].max().value_counts())
+print("Background data prepared. Shape:", background_df.shape)
+print(
+    "Patient counts:",
+    background_df.groupby("patient_id")["SepsisLabel"].max().value_counts(),
+)
 
 background_df.to_parquet(f"{data_output_folder}/background.parquet")
+print("Background data saved to:", f"{data_output_folder}/background.parquet")
 
 # save the patient ids as json
 patient_ids = background_df["patient_id"].unique()
@@ -90,12 +109,13 @@ with open(f"{data_output_folder}/background_patient_ids.json", "w") as f:
 # ============================================================================
 # Evaluation Data Preparation
 # ============================================================================
+print("Preparing evaluation data...")
 eval_df = copy.deepcopy(test_data.df)
 eval_df = over_under_sample(
     eval_df, method="undersample", minority_ratio=0.5, random_state=SEED
 )
 eval_df.to_parquet(f"{data_output_folder}/eval.parquet")
-
+print("Evaluation data saved to:", f"{data_output_folder}/eval.parquet")
 patient_ids = eval_df["patient_id"].unique()
 with open(f"{data_output_folder}/eval_patient_ids.json", "w") as f:
     json.dump(patient_ids.tolist(), f)
@@ -103,6 +123,7 @@ with open(f"{data_output_folder}/eval_patient_ids.json", "w") as f:
 # ============================================================================
 # SHAP Model Computation
 # ============================================================================
+print("Computing SHAP values...")
 background_data = get_data(config, "shap_background")
 eval_data = get_data(config, "shap_eval")
 
@@ -116,3 +137,5 @@ model.load_saved_weights()
 shap_model = ShapModel(model.model, background_data, device, pad_value=0.0)
 shap_vals, masks = shap_model.get_shap_values(eval_data)  # (256, 400, 107)
 shap_model.save(shap_output_folder)
+
+print("SHAP values computed and saved to:", shap_output_folder)
