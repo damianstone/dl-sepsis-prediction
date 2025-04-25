@@ -16,7 +16,7 @@ to the prediction for individual patients.
 # ============================================================================
 SEED = 42
 QUICK_DEBUG = False
-MEDIUM_DEBUG = True
+MEDIUM_DEBUG = False
 RANDOM_STATE = SEED
 OUTPUT_FOLDER_NAME = "final_datasets/shap"
 BACKGROUND_SIZE = 256

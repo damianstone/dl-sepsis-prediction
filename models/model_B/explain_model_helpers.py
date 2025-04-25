@@ -78,9 +78,9 @@ class ExplainConfig:
     """Centralised configuration shared by helpers in this file."""
 
     seed: int = 42
-    debug: DebugLevel = DebugLevel.MEDIUM
+    debug: DebugLevel = DebugLevel.OFF
     pad_value: float = 0.0
-    batch_size: int = 64
+    batch_size: int = 256
     max_len: int = 400  # maximum sequence length fed to collate_fn
     top_k_features: int = 10  # default number of features to visualise
     window_size: int = (
