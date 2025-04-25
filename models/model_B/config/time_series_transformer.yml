@@ -1,10 +1,10 @@
 xperiment:
-  name: '14_hour_undersampled_64_2_1'
+  name: '16_hour_undersampled_64_2_2_early'
   model: 'time_series'
 
 data:
   data_file_name: 'V2_preprocessed'
-  use_last_processed_data: false
+  use_last_processed_data: true
   sampling: true
   sampling_method: undersample
   sampling_minority_ratio: 0.3
@@ -15,7 +15,7 @@ data:
 model:
   d_model: 64
   num_heads: 2
-  num_layers: 1
+  num_layers: 2
   drop_out: 0.2
 
 training:

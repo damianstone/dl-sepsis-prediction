@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import torch
 from torchmetrics import Accuracy, F1Score, FBetaScore, Precision, Recall
 from tqdm import tqdm
@@ -27,6 +28,58 @@ def load_model(xperiment_name, model):
     return model
 
 
+def _pad_to_max_len(tensor_list, pad_val):
+    """Pad each (seq_len, batch) tensor so they all share the same seq_len."""
+    max_len = max(t.shape[0] for t in tensor_list)
+    out = []
+    for t in tensor_list:
+        if t.shape[0] == max_len:
+            out.append(t)
+        else:
+            pad_rows = max_len - t.shape[0]
+            pad = torch.full(
+                (pad_rows, t.shape[1]), pad_val, dtype=t.dtype, device=t.device
+            )
+            out.append(torch.cat([t, pad], dim=0))  # pad at end
+    return out
+
+
+def print_hour_metrics(all_y_step_preds, all_y_step_true, all_masks):
+    # 1) make all tensors the same seq_len
+    all_y_step_preds = _pad_to_max_len(all_y_step_preds, 0)
+    all_y_step_true = _pad_to_max_len(all_y_step_true, 0)
+    all_masks = _pad_to_max_len(all_masks, True)
+
+    # 2) concatenate along batch axis
+    y_preds_all = torch.cat(all_y_step_preds, dim=1)  # (seq_len, total_patients)
+    y_true_all = torch.cat(all_y_step_true, dim=1)
+    mask_all = torch.cat(all_masks, dim=1)
+
+    lead_times = []
+
+    # 3) compute lead time per patient
+    for i in range(y_preds_all.shape[1]):
+        valid = ~mask_all[:, i]
+        preds = y_preds_all[:, i][valid].numpy()
+        true = y_true_all[:, i][valid].numpy()
+
+        if 1 in true:  # patient became septic
+            onset = np.argmax(true)  # first 1 = label already 6 h early
+            pred_steps = np.where(preds == 1)[0]
+            early = pred_steps[pred_steps <= onset]
+            if len(early):
+                lead_times.append(onset - early[0])
+
+    if lead_times:
+        mean_l, med_l = np.mean(lead_times), np.median(lead_times)
+        print(f"Mean Lead Time (label):   {mean_l:.2f} h")
+        print(f"Median Lead Time (label): {med_l:.2f} h")
+        print(f"Mean Real Lead Time:      {mean_l + 6:.2f} h")
+        print(f"Median Real Lead Time:    {med_l + 6:.2f} h")
+    else:
+        print("No valid lead times detected.")
+
+
 def compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn):
     # y_logits = (seq len, batch size)
     # y_batch = (seq len, batch size)
@@ -49,6 +102,7 @@ def testing_loop(model, test_loader, loss_fn, device, threshold=0.3):
     f2_patient = FBetaScore(task="binary", beta=2.0).to(device)
 
     all_y_logits, all_y_probs, all_y_pred, all_y_test = [], [], [], []
+    all_y_step_preds, all_y_step_true, all_masks = [], [], []
 
     with torch.inference_mode():
         progress_bar = tqdm(test_loader, desc="Testing", leave=False)
@@ -66,6 +120,10 @@ def testing_loop(model, test_loader, loss_fn, device, threshold=0.3):
             y_preds = (y_probs >= threshold).float()
             # make padded values = False
             valid = ~attention_mask
+
+            all_y_step_preds.append(y_preds.cpu())
+            all_y_step_true.append(y_batch.cpu())
+            all_masks.append(attention_mask.cpu())
 
             # hour level metrics
             f1_hour.update(y_preds[valid], y_batch[valid])
@@ -105,6 +163,7 @@ def testing_loop(model, test_loader, loss_fn, device, threshold=0.3):
     print(f"Accuracy   : {final_acc:.4f}")
     print(f"F2 Patient : {final_f2_patient:.4f}")
     print("=" * 50 + "\n")
+    print_hour_metrics(all_y_step_preds, all_y_step_true, all_masks)
 
     return all_y_logits, all_y_probs, all_y_pred, all_y_test
 

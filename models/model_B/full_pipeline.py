@@ -240,9 +240,9 @@ def full_pipeline():
         weight, pos_weight = get_pos_weight_hour(flat_labels, max_p, device)
 
         config["training"]["weight"] = float(weight)
-        loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction="none")
     else:
-        loss_fn = nn.BCEWithLogitsLoss()
+        loss_fn = nn.BCEWithLogitsLoss(reduction="none")
 
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=config["training"]["lr"], weight_decay=0.01
@@ -262,7 +262,7 @@ def full_pipeline():
     epoch_counter = res["epoch_counter"]
     loss_counter = res["loss_counter"]
     acc_counter = res["acc_counter"]
-    config["training"]["best_f1_score"] = float(res["best_f1_score"])
+    config["training"]["best_f2_score"] = float(res["best_f2_score"])
     config["testing"]["best_threshold"] = float(res["best_threshold"])
     # -------------------------------- TESTING LOOP --------------------------------
     batch_size = config["testing"]["batch_size"]

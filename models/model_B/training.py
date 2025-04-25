@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from sklearn.metrics import fbeta_score
 from torchmetrics import Accuracy, F1Score, FBetaScore, Precision, Recall
 from tqdm import tqdm
@@ -113,13 +114,62 @@ def get_earliest_hour(probs_masked, patient_pred, threshold):
     return onset
 
 
-def compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn):
-    # y_logits = (seq len, batch size)
-    # y_batch = (seq len, batch size)
-    valid_mask = ~attention_mask  # (seq len, batch size) -> true for valid positions
-    masked_outputs = y_logits[valid_mask]
-    masked_targets = y_batch[valid_mask]
-    return loss_fn(masked_outputs, masked_targets)
+def build_time_weights(y_batch, pad_mask, window=3, neg_w=0.3):
+    """
+    y_batch  : (S, B) 0/1 labels
+    pad_mask : (S, B) 1 = padding
+    Returns  : weight matrix (S, B)
+    """
+    S, B = y_batch.shape
+    w = torch.ones_like(y_batch, dtype=y_batch.dtype)
+
+    for b in range(B):
+        # indices (along seq_len) that are real data for patient b
+        valid_idx = (~pad_mask[:, b]).nonzero(as_tuple=False).squeeze(-1)
+
+        if valid_idx.numel() == 0:  # all-padding patient (shouldn’t happen)
+            continue
+
+        seq_valid = y_batch[valid_idx, b]  # 0/1 labels without padding
+
+        # does this patient ever become septic?
+        onset_rel = (seq_valid == 1).nonzero(as_tuple=False)
+        if onset_rel.numel() == 0:
+            continue  # never septic → keep weights = 1
+
+        onset = valid_idx[onset_rel[0, 0]].item()  # onset index in full sequence
+
+        # last `window` negative hours before onset
+        early_zone = range(max(0, onset - window), onset)
+
+        # down-weight those negatives
+        for t in early_zone:
+            if y_batch[t, b] == 0:
+                w[t, b] = neg_w
+    return w
+
+
+# def compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn):
+#     # y_logits = (seq len, batch size)
+#     # y_batch = (seq len, batch size)
+#     valid_mask = ~attention_mask  # (seq len, batch size) -> true for valid positions
+#     masked_outputs = y_logits[valid_mask]
+#     masked_targets = y_batch[valid_mask]
+#     return loss_fn(masked_outputs, masked_targets)
+
+
+def compute_masked_loss(logits, targets, pad_mask, loss_fn, window=6, neg_w=0.5):
+    """
+    logits, targets : (S, B)
+    pad_mask        : (S, B) 1 = padding
+    window = 6      # look 6 h *before* that label-1
+    neg_w  = 0.5    # pay only 10 % of normal penalty - as less more incentive to predict early
+    """
+    raw = F.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+
+    weights = build_time_weights(targets, pad_mask, window, neg_w)
+    valid = ~pad_mask
+    return (raw * weights)[valid].mean()
 
 
 def validation_loop(model, val_loader, loss_fn, device, threshold):
@@ -173,12 +223,12 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
 
     y_probs_all = torch.cat(y_probs_list).numpy()
     y_true_all = torch.cat(y_true_list).numpy()
-    best_f1, best_thr = 0.0, 0.5
+    best_f2, best_thr = 0.0, 0.5
     for thr in np.linspace(0.01, 0.99, 99):
         preds = (y_probs_all >= thr).astype(int)
-        f1 = get_f1_score(y_true_all, preds)
-        if f1 > best_f1:
-            best_f1, best_thr = f1, thr
+        f2 = get_f2_score(y_true_all, preds)
+        if f2 > best_f2:
+            best_f2, best_thr = f2, thr
 
     n_batches = len(val_loader)
     val_loss = val_loss / n_batches
@@ -193,7 +243,7 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
         val_loss, val_acc, val_prec, val_rec, val_f1, val_f2, val_f2_patient
     )
 
-    return val_loss, val_f1, best_thr
+    return val_loss, val_f2, best_thr
 
 
 def training_loop(
@@ -202,7 +252,7 @@ def training_loop(
     epoch_counter, loss_counter, acc_counter = [], [], []
 
     patience = 10
-    best_f1_score = 0
+    best_f2_score = 0
     epochs_without_improvement = 0
     min_epochs = 5
     threshold = 0.5
@@ -273,13 +323,13 @@ def training_loop(
 
         # validation loop + early stopping
         if val_loader is not None:
-            val_loss, val_f1, best_thr = validation_loop(
+            val_loss, val_f2, best_thr = validation_loop(
                 model, val_loader, loss_fn, device, threshold
             )
             threshold = best_thr
             if epoch >= min_epochs:
-                if val_f1 > best_f1_score:
-                    best_f1_score = val_f1
+                if val_f2 > best_f2_score:
+                    best_f2_score = val_f2
                     epochs_without_improvement = 0
                     save_model(experiment_name, model)
                 else:
@@ -293,7 +343,7 @@ def training_loop(
         "epoch_counter": epoch_counter,
         "loss_counter": loss_counter,
         "acc_counter": acc_counter,
-        "best_f1_score": best_f1_score,
+        "best_f2_score": best_f2_score,
         "best_threshold": threshold,
         "model": model,
     }
