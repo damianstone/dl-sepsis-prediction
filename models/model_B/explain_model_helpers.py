@@ -23,6 +23,7 @@ Sections
 # =============================================================================
 import copy
 import logging
+import pickle
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -194,11 +195,12 @@ class ShapModel(nn.Module):
         # Background batch used by GradientExplainer --------------------------
         bg_loader = DataLoader(
             background_data.dataset,
-            batch_size=min(100, len(background_data.dataset)),
+            batch_size=len(background_data.dataset),
             shuffle=False,
             generator=torch.Generator().manual_seed(SEED),
             collate_fn=collate_fn_wrapper,
             drop_last=False,
+            num_workers=12,
         )
         self.bg_batch = next(iter(bg_loader))
         self.bg_xs, self.bg_mask = to_batch_major_order(self.bg_batch)
@@ -233,6 +235,7 @@ class ShapModel(nn.Module):
             shuffle=False,
             collate_fn=collate_fn_wrapper,
             drop_last=False,
+            num_workers=12,
         )
 
         shap_values_lst: list[np.ndarray] = []
@@ -252,7 +255,21 @@ class ShapModel(nn.Module):
 
         shap_vals = np.concatenate(shap_values_lst, axis=0)
         masks = np.concatenate(masks_lst, axis=0)
-        return apply_shap_mask(shap_vals, masks)
+        shap_vals = apply_shap_mask(shap_vals, masks)
+        self.shap_vals = shap_vals
+        self.masks = masks
+        return shap_vals, masks
+
+    def save(self, folder: str):
+        if self.shap_vals is None or self.masks is None:
+            raise ValueError("SHAP values and masks must be computed first")
+        path = Path(folder)
+        if not path.exists():
+            path.mkdir(parents=True)
+        np.save(path / "shap_vals.npy", self.shap_vals)
+        np.save(path / "masks.npy", self.masks)
+        with open(path / "explainer.pkl", "wb") as f:
+            pickle.dump(self.explainer, f)
 
 
 # =============================================================================

@@ -55,6 +55,7 @@ def load_train_data(type, fraction: float = 1.0) -> dict:
         "X": train_df.drop(columns=["SepsisLabel", "patient_id"]),
         "y": train_df["SepsisLabel"],
         "patient_ids": train_df["patient_id"],
+        "df": train_df,
     }
     return data_splits
 
@@ -69,6 +70,7 @@ def load_val_data() -> dict:
         "X": val_df.drop(columns=["SepsisLabel", "patient_id"]),
         "y": val_df["SepsisLabel"],
         "patient_ids": val_df["patient_id"],
+        "df": val_df,
     }
     return data_splits
 
@@ -83,5 +85,38 @@ def load_test_data() -> dict:
         "X": test_df.drop(columns=["SepsisLabel", "patient_id"]),
         "y": test_df["SepsisLabel"],
         "patient_ids": test_df["patient_id"],
+        "df": test_df,
+    }
+    return data_splits
+
+
+def load_shap_background() -> dict:
+    """
+    Loads the SHAP background dataset.
+    """
+    root = find_project_root()
+    background_df = pd.read_parquet(
+        f"{root}/dataset/final_datasets/shap/background.parquet"
+    )
+    data_splits = {
+        "X": background_df.drop(columns=["SepsisLabel", "patient_id"]),
+        "y": background_df["SepsisLabel"],
+        "patient_ids": background_df["patient_id"],
+        "df": background_df,
+    }
+    return data_splits
+
+
+def load_shap_eval() -> dict:
+    """
+    Loads the SHAP evaluation dataset.
+    """
+    root = find_project_root()
+    eval_df = pd.read_parquet(f"{root}/dataset/final_datasets/shap/eval.parquet")
+    data_splits = {
+        "X": eval_df.drop(columns=["SepsisLabel", "patient_id"]),
+        "y": eval_df["SepsisLabel"],
+        "patient_ids": eval_df["patient_id"],
+        "df": eval_df,
     }
     return data_splits
