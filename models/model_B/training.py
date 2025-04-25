@@ -1,8 +1,28 @@
 from pathlib import Path
 
+import numpy as np
 import torch
 from sklearn.metrics import accuracy_score, fbeta_score, precision_score, recall_score
+from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
+
+
+def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps):
+    """
+    Create a simple linear warmup + linear decay scheduler.
+    """
+
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        # after warmup, decay linearly to zero
+        return max(
+            0.0,
+            float(num_training_steps - current_step)
+            / float(max(1, num_training_steps - num_warmup_steps)),
+        )
+
+    return LambdaLR(optimizer, lr_lambda)
 
 
 def get_f2_score(y_pred, y_true):
@@ -51,6 +71,7 @@ def save_model(xperiment_name, model):
     model_path.mkdir(exist_ok=True)
     model_file = model_path / f"{xperiment_name}.pth"
     torch.save(model.state_dict(), model_file)
+    return model_file
 
 
 def load_model(xperiment_name, model):
@@ -83,25 +104,11 @@ def print_validation_metrics(
     print(f"F2-Score:   {val_f2*100:.2f}%")
 
 
-def compute_masked_loss(outputs, targets, attention_mask, loss_fn):
-    # outputs: (seq_len, batch_size)
-    # targets: (seq_len, batch_size)
-    outputs = outputs.transpose(0, 1)  # (batch_size, seq_len)
-    targets = targets.transpose(0, 1)  # (batch_size, seq_len)
-    valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
-
-    # Only compute loss on valid timesteps
-    masked_outputs = outputs[valid_mask]
-    masked_targets = targets[valid_mask]
-
-    return loss_fn(masked_outputs, masked_targets)
-
-
-def validation_loop(model, val_loader, loss_fn, device, threshold):
+def validation_loop(model, val_loader, loss_fn, device):
     model.eval()
     val_loss = 0.0
 
-    full_y_pred, full_y_true = [], []
+    full_y_pred, full_y_true, full_y_probs = [], [], []
     with torch.no_grad():
         for X_batch, y_batch, attention_mask in val_loader:
             X_batch, y_batch, attention_mask = (
@@ -110,35 +117,47 @@ def validation_loop(model, val_loader, loss_fn, device, threshold):
                 attention_mask.to(device),
             )
 
-            # Forward pass
             y_logits = model(X_batch, mask=attention_mask)
             y_probs = torch.sigmoid(y_logits)
 
-            # getting fucking predictions
-            valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
-            y_preds = (y_probs.transpose(0, 1)[valid_mask] >= threshold).float()
-            y_true = y_batch.transpose(0, 1)[valid_mask]
+            loss = loss_fn(y_logits.squeeze(), y_batch.float())
 
-            # compute loss
-            loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
-
-            full_y_pred.append(y_preds.cpu())
-            full_y_true.append(y_true.cpu())
-
+            full_y_true.append(y_batch.float().cpu())
+            full_y_probs.append(y_probs.squeeze().cpu())
             val_loss += loss.item()
 
     n_batches = len(val_loader)
     val_loss = val_loss / n_batches
 
     # Concatenate tensors and convert to numpy arrays
-    full_y_pred = torch.cat(full_y_pred).numpy()
+    full_y_probs = torch.cat(full_y_probs).numpy()
     full_y_true = torch.cat(full_y_true).numpy()
+
+    best_f2, best_thr = float("-inf"), 0.5
+    for thr in np.linspace(0.01, 0.99, 99):
+        preds = (full_y_probs >= thr).astype(int)
+        f2 = get_f2_score(full_y_true, preds)
+        if f2 > best_f2:
+            best_f2, best_thr = f2, thr
+
+    full_y_pred = (full_y_probs >= best_thr).astype(int)
+
     # Compute metrics on the full validation set
     val_acc = accuracy_score(full_y_true, full_y_pred)
     val_prec = precision_score(full_y_true, full_y_pred, zero_division=0)
     val_rec = recall_score(full_y_true, full_y_pred, zero_division=0)
     f2_score = get_f2_score(full_y_pred, full_y_true)
-    return val_loss, val_acc, val_prec, val_rec, f2_score, full_y_pred, full_y_true
+
+    return (
+        val_loss,
+        val_acc,
+        val_prec,
+        val_rec,
+        f2_score,
+        full_y_pred,
+        full_y_true,
+        best_thr,
+    )
 
 
 def training_loop(
@@ -146,11 +165,17 @@ def training_loop(
 ):
     epoch_counter, loss_counter, acc_counter = [], [], []
 
-    patience = 10
+    # set up LR scheduler: 10% of total steps as warmup
+    warmup_epochs = 10
+    warmup_steps = int(warmup_epochs * len(train_loader))
+    total_steps = epochs * len(train_loader)
+    scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
+
+    patience = 15  # if the validation doesn't improve after K (patience) checks
     best_f2_score = 0
     epochs_without_improvement = 0
-    min_epochs = 20
-    threshold = 0.5
+    min_epochs = 10
+    best_threshold = 0.5
 
     for epoch in range(epochs):
         model.train()
@@ -169,26 +194,23 @@ def training_loop(
             # Forward pass
             y_logits = model(X_batch, mask=attention_mask)
             y_probs = torch.sigmoid(y_logits)
-
-            # getting fucking predictions
-            valid_mask = attention_mask.transpose(0, 1)  # (batch_size, seq_len)
-            y_preds = (y_probs.transpose(0, 1)[valid_mask] >= threshold).float()
-            y_true = y_batch.transpose(0, 1)[valid_mask]
+            y_preds = (y_probs >= 0.5).float()
 
             # compute loss
-            loss = compute_masked_loss(y_logits, y_batch, attention_mask, loss_fn)
+            loss = loss_fn(y_logits.squeeze(), y_batch.float())
 
             # Backpropagation
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
             batch_count += 1
 
             # update epoch metrics and store predictions
             epoch_loss += loss.item()
-            epoch_y_pred.append(y_preds.cpu())
-            epoch_y_true.append(y_true.cpu())
+            epoch_y_pred.append(y_preds.squeeze().cpu())
+            epoch_y_true.append(y_batch.float().cpu())
 
             progress_bar.set_postfix({"Loss": loss.item()})
 
@@ -202,14 +224,23 @@ def training_loop(
         loss_counter.append(epoch_loss)
         acc_counter.append(epoch_acc)
 
+        f1 = get_f1_score(epoch_y_true, epoch_y_pred)
+
         print(
-            f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc*100:.2f}% | Precision: {epoch_prec*100:.2f}% | Recall: {epoch_rec*100:.2f}%"
+            f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | F1: {f1*100:.2f}% | Accuracy: {epoch_acc*100:.2f}% | Precision: {epoch_prec*100:.2f}% | Recall: {epoch_rec*100:.2f}%"
         )
 
         if val_loader is not None and epoch % 1 == 0:
-            val_loss, val_acc, val_prec, val_rec, f2_score, full_y_pred, full_y_true = (
-                validation_loop(model, val_loader, loss_fn, device, threshold)
-            )
+            (
+                val_loss,
+                val_acc,
+                val_prec,
+                val_rec,
+                f2_score,
+                full_y_pred,
+                full_y_true,
+                best_threshold,
+            ) = validation_loop(model, val_loader, loss_fn, device)
             print_validation_metrics(
                 val_loss, val_acc, val_prec, val_rec, full_y_pred, full_y_true
             )
@@ -230,6 +261,7 @@ def training_loop(
         "acc_counter": acc_counter,
         "best_f2_score": best_f2_score,
         "model": model,
+        "best_threshold": best_threshold,
     }
     return res
 

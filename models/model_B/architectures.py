@@ -3,28 +3,6 @@ import torch
 from torch import nn
 
 
-class TransformerClassifier(nn.Module):
-    """
-    num_heads = more heads capture different attention but increase computation
-    num_layers = more make the model deeper but can overfit if too high
-    """
-
-    def __init__(self, input_dim, num_heads=2, num_layers=2, drop_out=0.1):
-        super().__init__()
-        self.encoder_layer = nn.TransformerEncoderLayer(
-            d_model=input_dim, nhead=num_heads, dropout=drop_out, batch_first=True
-        )
-        # stacks multiple encoder layers (num_layers controls depth)
-        self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=num_layers)
-        # linear layer to map the output to a single value (binary classification)
-        self.linear_layer = nn.Linear(in_features=input_dim, out_features=1)
-
-    def forward(self, x, mask=None):
-        # mask to ignore padding in self-attention
-        z = self.encoder(x, src_key_padding_mask=mask)
-        return self.linear_layer(z[:, -1, :])  # use last time step for classification
-
-
 class PositionalEncoding(nn.Module):
     """
     adds a unique signal to each patient record based on its time step
@@ -58,7 +36,6 @@ class PositionalEncoding(nn.Module):
 
 class TransformerTimeSeries(nn.Module):
     """
-    Will this patient develop sepsis at any point during their stay?
     input_dim = number of features in the dataset
     d_model options = 64, 128, 256
     n_heads = 2 or 4 for multi attention
@@ -75,39 +52,53 @@ class TransformerTimeSeries(nn.Module):
         self.linear_layer = nn.Linear(in_features=d_model, out_features=1)
 
     def forward(self, x, mask=None):
+        """
+        predict if the patient have sepsis looking at all the time steps at once
+        1 patient -> multiple time steps -> 1 prediction (global)
+
+        1. input: multiple time steps for all patients in the batch
+        2. the transformer processes the entire sequence of time steps for each patient at one, not one time step at a time
+        3. the positional encoder ensures the model know the order of records
+        4. attention pooling learns which time steps matter most and summarizes the sequence into a single embedding
+        5. the model return one prediction per patient
+        """
         # x: (sequence_length, batch_size, feature_dim)
         x = self.embedding(x)  # (seq_len, batch_size, d_model)
-        x = self.positional_encoder(x)  # (seq_len, batch_size, d_model)
+        x = self.positional_encoder(x)
 
-        # Adjust mask shape: collate_fn returns mask as (seq_len, batch_size),
-        # but TransformerEncoder expects src_key_padding_mask as (batch_size, seq_len)
         if mask is not None:
-            mask = ~mask.transpose(0, 1)
+            mask = mask.transpose(0, 1)
 
-        x = self.encoder(x, src_key_padding_mask=mask)  # (seq_len, batch_size, d_model)
+        x = self.encoder(x, src_key_padding_mask=mask)
 
-        # x = x.max(dim=0).values  # max pooling over time
-        x = self.linear_layer(x).squeeze(-1)  # (batch_size)
-        return x
+        # # gives more weight to later measurements
+        # seq_len = x.size(0)
+        # temporal_bias = torch.exp(torch.arange(seq_len, device=x.device) / seq_len)
+        # # Shape: (seq_len, 1, 1)
+        # temporal_bias = temporal_bias.unsqueeze(-1).unsqueeze(-1)
 
-    # def forward(self, x, mask=None):
-    #     # x: (sequence_length, batch_size, feature_dim)
-    #     x = self.embedding(x)  # (seq_len, batch_size, d_model)
-    #     x = self.positional_encoder(x)
+        # Attention-weighted pooling
+        attention_weights = torch.softmax(self.attention(x), dim=0)
+        x = torch.sum(x * attention_weights, dim=0)
+        return self.linear_layer(x).squeeze(-1)
 
-    #     if mask is not None:
-    #         mask = ~mask.transpose(0, 1)
 
-    #     x = self.encoder(x, src_key_padding_mask=mask)
+class TransformerClassifier(nn.Module):
+    """
+    Initila testing, we are not using this model
+    """
 
-    #     # gives more weight to later measurements
-    #     seq_len = x.size(0)
-    #     temporal_bias = torch.exp(torch.arange(seq_len, device=x.device) / seq_len)
-    #     # Shape: (seq_len, 1, 1)
-    #     temporal_bias = temporal_bias.unsqueeze(-1).unsqueeze(-1)
+    def __init__(self, input_dim, num_heads=2, num_layers=2, drop_out=0.1):
+        super().__init__()
+        self.encoder_layer = nn.TransformerEncoderLayer(
+            d_model=input_dim, nhead=num_heads, dropout=drop_out, batch_first=True
+        )
+        # stacks multiple encoder layers (num_layers controls depth)
+        self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=num_layers)
+        # linear layer to map the output to a single value (binary classification)
+        self.linear_layer = nn.Linear(in_features=input_dim, out_features=1)
 
-    #     # Attention-weighted pooling
-    #     attention_weights = torch.softmax(self.attention(x), dim=0)
-    #     x = torch.sum(x * attention_weights, dim=0)  # Weighted sum across time
-
-    #     return self.linear_layer(x).squeeze(-1)
+    def forward(self, x, mask=None):
+        # mask to ignore padding in self-attention
+        z = self.encoder(x, src_key_padding_mask=mask)
+        return self.linear_layer(z[:, -1, :])  # use last time step for classification

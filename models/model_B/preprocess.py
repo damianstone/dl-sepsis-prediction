@@ -245,7 +245,9 @@ def preprocess_data(
     # Then balance both sets separately to ensure exact same balance
     if sampling:
         train_df = over_under_sample(
-            df=train_df, method=sampling_method, minority_ratio=sampling_minority_ratio
+            df=train_df,
+            method=sampling_method,
+            minority_ratio=sampling_minority_ratio,
         )
 
     train_df, val_df, test_df = scale_dfs(

@@ -1,5 +1,5 @@
 xperiment:
-  name: '13_undersampled_64_2_1'
+  name: '28_undersampled_3070_V2_pretrained_128_4_2'
   model: 'time_series'
 
 data:
@@ -16,14 +16,20 @@ model:
   d_model: 64
   num_heads: 2
   num_layers: 1
-  drop_out: 0.3
+  drop_out: 0.2
 
 training:
-  batch_size: 64
+  batch_size: 256
   use_post_weight: true
   max_post_weight: 5
-  lr: 0.0001
+  lr: 0.001
   epochs: 1000
 
 testing:
   batch_size: 64
+
+pretrain:
+  enabled: true
+  epochs: 100
+  batch_size: 64
+  mask_ratio: 0.15

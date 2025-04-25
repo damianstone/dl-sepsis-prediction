@@ -77,6 +77,7 @@ def get_pos_weight(ids, y, max_weight=5, device=torch.device("cpu")):
 
     weight = round(negative_count / positive_count, 2)
     p_w = min(weight, max_weight)
+    print(f"Pos weight: {p_w}")
     return weight, torch.tensor([p_w], dtype=torch.float32, device=device)
 
 
@@ -148,6 +149,7 @@ def get_model(model_to_use, config, in_dim, device):
             n_layers=config["model"]["num_layers"],
             dropout=config["model"]["drop_out"],
         ).to(device)
+
     else:
         model = TransformerClassifier(
             input_dim=in_dim,
