@@ -340,13 +340,16 @@ def get_data(config, type):
         data["patient_ids"].values,
         time_index=data["X"].columns.get_loc("ICULOS"),
     )
-
+    if not config["testing" if type == "test" else "training"]["num_workers"]:
+        num_workers = 12
+    else:
+        num_workers = config["testing" if type == "test" else "training"]["num_workers"]
     loader = DataLoader(
         dataset,
         batch_size=config["testing" if type == "test" else "training"]["batch_size"],
-        shuffle=True,
+        shuffle=True if type == "train" else False,
         collate_fn=collate_fn,
-        num_workers=12,
+        num_workers=num_workers,
     )
 
     return DataWrapper.from_map(

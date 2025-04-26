@@ -32,6 +32,7 @@ from typing import Tuple
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import seaborn as sns
 import shap
 import torch
@@ -80,12 +81,13 @@ class ExplainConfig:
     seed: int = 42
     debug: DebugLevel = DebugLevel.OFF
     pad_value: float = 0.0
-    batch_size: int = 256
+    batch_size: int = 64
     max_len: int = 400  # maximum sequence length fed to collate_fn
     top_k_features: int = 10  # default number of features to visualise
     window_size: int = (
         30  # default size (in hours) for sliding window in global heatmap
     )
+    num_workers: int = 4
 
 
 # Instantiate a *module-level* config object that downstream code can mutate
@@ -200,7 +202,7 @@ class ShapModel(nn.Module):
             generator=torch.Generator().manual_seed(SEED),
             collate_fn=collate_fn_wrapper,
             drop_last=False,
-            num_workers=12,
+            num_workers=CONFIG.num_workers,
         )
         self.bg_batch = next(iter(bg_loader))
         self.bg_xs, self.bg_mask = to_batch_major_order(self.bg_batch)
@@ -235,7 +237,7 @@ class ShapModel(nn.Module):
             shuffle=False,
             collate_fn=collate_fn_wrapper,
             drop_last=False,
-            num_workers=12,
+            num_workers=CONFIG.num_workers,
         )
 
         shap_values_lst: list[np.ndarray] = []
@@ -307,12 +309,14 @@ def predict_per_patient(model_wrapper, data, device: torch.device, pred_threshol
 
     patient_ids = data.dataset.unique_patient_ids
     y_trues, y_probs, y_preds = [], [], []
+    xvals = []
 
     model = model_wrapper.model  # underlying Transformer
     model.eval()
 
     with torch.no_grad():
-        for xs, ys, mask in loader:
+        td = tqdm(loader, desc="Predicting per patient")
+        for xs, ys, mask in td:
             xs, ys, mask = xs.to(device), ys.to(device), mask.to(device)
             logits = model(xs, mask=mask)  # (B, 1) or (B,)
             probs = torch.sigmoid(logits.squeeze(-1))
@@ -321,8 +325,40 @@ def predict_per_patient(model_wrapper, data, device: torch.device, pred_threshol
             y_trues.extend(ys.cpu().numpy())
             y_preds.extend(preds)
             y_probs.extend(probs.cpu().numpy())
+            xvals.append(xs.cpu().numpy())
 
-    return patient_ids, np.array(y_trues), np.array(y_preds), np.array(y_probs)
+    return (
+        patient_ids,
+        np.array(y_trues),
+        np.array(y_preds),
+        np.array(y_probs),
+        xvals,
+    )
+
+
+def compute_base_value(model_wrapper, eval_data, device: torch.device):
+    """Return the base value of the model."""
+
+    loader = DataLoader(
+        eval_data.dataset,
+        batch_size=CONFIG.batch_size,
+        shuffle=False,
+        collate_fn=collate_fn_wrapper,
+        drop_last=False,
+    )
+
+    model = model_wrapper.model  # underlying Transformer
+    model.eval()
+    logits = []
+    with torch.no_grad():
+        td = tqdm(loader, desc="Computing base value")
+        for xs, ys, mask in td:
+            xs, ys, mask = xs.to(device), ys.to(device), mask.to(device)
+            logits = model(xs, mask=mask)  # (B, 1) or (B,)
+            logits = logits.cpu().numpy()
+    logits = np.array(logits)
+    base_value = np.mean(logits, axis=0)
+    return base_value
 
 
 # Backwards-compat alias -------------------------------------------------------
@@ -357,6 +393,7 @@ def get_pred_threshold(model, val_data, device, config):
         shuffle=False,
         collate_fn=collate_fn_wrapper,
         drop_last=False,
+        num_workers=CONFIG.num_workers,
     )
     loss_fn = get_loss_fn(config, val_data, device)
     (
@@ -410,12 +447,15 @@ def patient_heatmap(
     *,
     only_target_relevant: bool = True,
     show: bool = True,
+    top_features: list[int] | np.ndarray | None = None,
+    annot_df: pd.DataFrame | None = None,
 ):
     """Plot a SHAP heat-map for a *single* patient and optionally return the figure."""
 
     # Truncate padding --------------------------------------------------------
     patient_data = copy.deepcopy(shap_vals[idx])  # (T, F)
     valid_time_index, valid_patient_data = strip_padding(patient_data, time_index)
+    annot_df = annot_df.iloc[: valid_time_index.shape[0]]
 
     # Focus on SHAP values relevant to the *target class* ---------------------
     if only_target_relevant:
@@ -426,8 +466,9 @@ def patient_heatmap(
         )
 
     # Top-k most relevant features -------------------------------------------
-    mean_importance = np.abs(valid_patient_data).mean(axis=0)
-    top_features = np.argsort(mean_importance)[-CONFIG.top_k_features :]
+    if top_features is None:
+        mean_importance = np.abs(valid_patient_data).mean(axis=0)
+        top_features = np.argsort(-mean_importance)[: CONFIG.top_k_features]
     top_feature_names = np.array(feature_names)[top_features]
 
     # Plot --------------------------------------------------------------------
@@ -435,18 +476,23 @@ def patient_heatmap(
         figsize=(max(10, valid_time_index.shape[0] * 0.1), 8),
         constrained_layout=True,
     )
+    if annot_df is not None:
+        annot_to_use = annot_df.iloc[:, top_features].T.values
+    else:
+        annot_to_use = None
+
     sns.heatmap(
         valid_patient_data[:, top_features].T,
         cmap="vlag",
         center=0,
         yticklabels=top_feature_names,
         xticklabels=valid_time_index,
+        annot=annot_to_use,
         ax=ax,
     )
     ax.set_title(
         (
-            f"Patient {patient_id} | y_true={int(y_true)} | "
-            f"y_pred={int(y_pred)} | y_prob={y_prob:.2f}"
+            f"Patient ID: {int(patient_id)}, Actual: {int(y_true)}, Predicted: {int(y_pred)}"
         ),
         fontsize=14,
     )
