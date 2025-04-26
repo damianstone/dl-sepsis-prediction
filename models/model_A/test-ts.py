@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pandas as pd
 import xgboost as xgb
-from analyze_thresholds import analyze_thresholds
 from plots import save_all_xgb_plots
 from sklearn.metrics import (
     f1_score,
@@ -74,10 +73,6 @@ def evaluate_patient_level(model_path, test_path, save_dir):
         feature_names=feature_cols.tolist(),
     )
 
-    threshold_csv_path = save_dir / "threshold_analysis.csv"
-    analyze_thresholds(
-        y_true=df_patient["y_true"], y_probs=df_patient["y_prob"], save_path=threshold_csv_path
-    )
 
 
 if __name__ == "__main__":
