@@ -26,7 +26,9 @@ def find_project_root(marker=".gitignore"):
 
 def load_top_features(n=20):
     root = find_project_root()
-    shap_path = (root/ "models"/ "model_A"/ "outputs"/ "shap"/ "shap_features_default.csv")
+    shap_path = (
+        root / "models" / "model_A" / "outputs" / "shap" / "shap_features_default.csv"
+    )
     shap_df = pd.read_csv(shap_path)
     shap_df_sorted = shap_df.sort_values(by="mean_shap_positive", ascending=False)
     top_features = shap_df_sorted["feature"].tolist()[:n]
@@ -36,11 +38,16 @@ def load_top_features(n=20):
 
     return top_features
 
+
 def load_all_features():
     root = find_project_root()
     data_path = root / "dataset" / "final_datasets" / "no_sampling_train.parquet"
     df = pd.read_parquet(data_path)
-    feature_cols = [col for col in df.columns if col not in ["patient_id", "SepsisLabel", "SepsisLabel_patient"]]
+    feature_cols = [
+        col
+        for col in df.columns
+        if col not in ["patient_id", "SepsisLabel", "SepsisLabel_patient"]
+    ]
     return feature_cols
 
 

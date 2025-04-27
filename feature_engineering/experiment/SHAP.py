@@ -19,7 +19,7 @@ def find_project_root(marker=".gitignore"):
 
 def run_shap_on_data(parquet_file="no_sampling_train.parquet", output_tag="default"):
     root = find_project_root()
-    input_path = root / "dataset" /"final_datasets"/ parquet_file
+    input_path = root / "dataset" / "final_datasets" / parquet_file
     df = pd.read_parquet(input_path)
 
     if "patient_id" not in df.columns and "patient_id" in df.index.names:
@@ -32,10 +32,14 @@ def run_shap_on_data(parquet_file="no_sampling_train.parquet", output_tag="defau
     exclude_prefixes = ["SepsisLabel_", "patient_id"]
     exclude_exact = [label_col]
     features = df.drop(
-    columns=[col for col in df.columns
-        if col in exclude_exact or any(col.startswith(p) for p in exclude_prefixes)],
-    errors="ignore").fillna(-1)
-    
+        columns=[
+            col
+            for col in df.columns
+            if col in exclude_exact or any(col.startswith(p) for p in exclude_prefixes)
+        ],
+        errors="ignore",
+    ).fillna(-1)
+
     labels = df[label_col].astype(int)
 
     model = xgb.XGBClassifier(n_estimators=400, max_depth=6, eval_metric="logloss")

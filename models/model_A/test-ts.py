@@ -46,12 +46,9 @@ def evaluate_patient_level(model_path, test_path, save_dir):
     y_probs = booster.predict(dtest)
     y_pred = (y_probs >= 0.5).astype(int)
 
-    df_pred = pd.DataFrame({
-        "y_true": y_time,
-        "y_prob": y_probs,
-        "y_pred": y_pred
-    }, index=df.index)
-
+    df_pred = pd.DataFrame(
+        {"y_true": y_time, "y_prob": y_probs, "y_pred": y_pred}, index=df.index
+    )
 
     df_patient = df_pred.groupby(level="patient_id").agg(
         {"y_true": "max", "y_prob": "max", "y_pred": "max"}
@@ -74,10 +71,11 @@ def evaluate_patient_level(model_path, test_path, save_dir):
     )
 
 
-
 if __name__ == "__main__":
     root = find_project_root()
     test_path = root / "dataset" / "final_datasets" / "test.parquet"
-    model_path = root / "models" / "model_A" / "train_outputs" / "train_9" / "best_xgb_model.ubj"
+    model_path = (
+        root / "models" / "model_A" / "train_outputs" / "train_9" / "best_xgb_model.ubj"
+    )
     save_dir = get_next_predict_dir(root / "models" / "model_A" / "test_outputs")
     evaluate_patient_level(model_path, test_path, save_dir)
