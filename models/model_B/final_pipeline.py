@@ -1,15 +1,16 @@
 """
-Grid Search Script for Sepsis Prediction
+Final Sepsis Prediction Pipeline
 
-This script performs a hyperparameter grid search for a time series transformer model to predict sepsis onset. It includes:
-  - Configuration setup
-  - Device setup
-  - Loss and metric functions
-  - GridSearchModel and DataWrapper classes
-  - Grid search execution and pipeline orchestration
+This script implements a complete pipeline for sepsis prediction using transformer models. It includes:
+  - Multiple model configurations (small, medium, large)
+  - Support for different dataset sampling strategies (undersampled, oversampled, no_sampling)
+  - Optional model pretraining capability
+  - Training, validation, and testing loops
+  - Performance evaluation and visualization
+  - Utility functions for configuration and environment setup
 
 Usage:
-    python grid_search.py
+    python final_pipeline.py
 """
 
 import copy
@@ -404,10 +405,12 @@ def pipeline():
     test_data = get_data(base_config, "test")
     no_sampling_train_data = get_data(base_config, "train")
     models = []
-    for dataset_type in ["undersampled"]:
+    for dataset_type in ["undersampled", "oversampled", "no_sampling"]:
 
         configs = [
             get_small_model_config(dataset_type),
+            get_medium_model_config(dataset_type),
+            get_large_model_config(dataset_type),
         ]
         for config in configs:
             train_data = get_data(config, "train")

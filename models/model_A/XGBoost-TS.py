@@ -26,7 +26,7 @@ def find_project_root(marker=".gitignore"):
 
 def load_data():
     root = find_project_root()
-    data_path = (root / "dataset"/ "final_datasets"/ "undersampled_train.parquet")
+    data_path = root / "dataset" / "final_datasets" / "undersampled_train.parquet"
     df = pd.read_parquet(data_path)
 
     if not isinstance(df.index, pd.MultiIndex):
