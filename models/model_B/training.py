@@ -224,8 +224,10 @@ def training_loop(
         loss_counter.append(epoch_loss)
         acc_counter.append(epoch_acc)
 
+        f1 = get_f1_score(epoch_y_true, epoch_y_pred)
+
         print(
-            f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | Accuracy: {epoch_acc*100:.2f}% | Precision: {epoch_prec*100:.2f}% | Recall: {epoch_rec*100:.2f}%"
+            f"Epoch {epoch+1}/{epochs} | Loss: {epoch_loss:.5f} | F1: {f1*100:.2f}% | Accuracy: {epoch_acc*100:.2f}% | Precision: {epoch_prec*100:.2f}% | Recall: {epoch_rec*100:.2f}%"
         )
 
         if val_loader is not None and epoch % 1 == 0:
